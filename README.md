@@ -6,6 +6,7 @@ An Express.js API that uses Ollama to grade student submissions against a rubric
 
 - **Node.js** 18+
 - **Ollama** installed and running ([https://ollama.ai](https://ollama.ai))
+- **MySQL** 8 (or compatible) — optional; the app runs without it but grading results won’t be saved
 
 ```bash
 # Install Ollama (Linux/macOS)
@@ -14,6 +15,31 @@ curl -fsSL https://ollama.ai/install.sh | sh
 # Pull a model
 ollama pull llama3.2
 ```
+
+## Environment and database
+
+1. Install **MySQL** 8 (or compatible) and ensure the server is running.
+
+2. Copy the example env file and edit as needed:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+3. Set `DB_HOST`, `DB_PORT`, `DB_USER`, and `DB_PASSWORD` in `.env` to match your MySQL server (see [.env.example](.env.example)):
+
+   | Variable        | Description              | Default   |
+   |----------------|--------------------------|-----------|
+   | `PORT`         | API server port          | `3000`    |
+   | `DB_HOST`      | MySQL host               | `localhost` |
+   | `DB_PORT`      | MySQL port               | `3306`    |
+   | `DB_USER`      | MySQL user               | `root`    |
+   | `DB_PASSWORD`  | MySQL password           | *(empty)* |
+   | `DB_NAME`      | Database name            | `checker` |
+
+   The app creates the `checker` database and `grading_results` table on first run if they don’t exist.
+
+If MySQL is not available, the server still starts but grading results are not persisted.
 
 ## Quick Start
 
@@ -531,6 +557,7 @@ Make sure the model is pulled in Ollama first: `ollama pull <model-name>`
 checker/
 ├── src/
 │   ├── server.js              # Express app entry point
+│   ├── db.js                  # MySQL pool, init, and grading_results CRUD
 │   ├── routes/
 │   │   └── grading.js         # API route handlers
 │   ├── services/
@@ -542,6 +569,7 @@ checker/
 │   ├── sample_instructions.txt # Example assignment instructions
 │   └── sample_submission.txt  # Example student submission
 ├── uploads/                   # Temp upload directory (gitignored)
+├── .env.example               # Example env vars (copy to .env)
 ├── package.json
 ├── .gitignore
 └── README.md
@@ -550,6 +578,11 @@ checker/
 ---
 
 ## Troubleshooting
+
+**MySQL connection failed / results not saving?**
+
+- Ensure MySQL is installed and running. Check `.env`: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`.
+- The app creates the database and table on startup; no manual SQL needed.
 
 **Ollama not running?**
 

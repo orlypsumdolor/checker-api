@@ -4,9 +4,10 @@ node_modules/
 # Uploaded files
 uploads/
 
-# Environment variables
+# Environment variables (keep .env.example)
 .env
 .env.*
+!.env.example
 
 # Logs
 *.log
