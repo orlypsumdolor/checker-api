@@ -1,0 +1,52 @@
+{
+  "Content Quality": {
+    "max_points": 30,
+    "description": "Depth and accuracy of content",
+    "criteria": [
+      "Demonstrates thorough understanding of the topic",
+      "Uses relevant evidence and examples",
+      "Addresses all key aspects of the assignment",
+      "Shows critical thinking and analysis"
+    ]
+  },
+  "Organization": {
+    "max_points": 20,
+    "description": "Structure and flow of the work",
+    "criteria": [
+      "Clear introduction with thesis/purpose statement",
+      "Logical paragraph organization",
+      "Smooth transitions between ideas",
+      "Strong conclusion that ties everything together"
+    ]
+  },
+  "Writing Quality": {
+    "max_points": 20,
+    "description": "Grammar, style, and clarity",
+    "criteria": [
+      "Clear and concise writing style",
+      "Proper grammar and punctuation",
+      "Appropriate academic tone",
+      "Varied sentence structure"
+    ]
+  },
+  "Requirements Met": {
+    "max_points": 20,
+    "description": "Following assignment requirements",
+    "criteria": [
+      "Meets minimum length requirements",
+      "Addresses the specific prompt/question",
+      "Follows formatting guidelines",
+      "Submitted on time"
+    ]
+  },
+  "Sources & Citations": {
+    "max_points": 10,
+    "description": "Use and citation of sources",
+    "criteria": [
+      "Uses credible and relevant sources",
+      "Proper citation format (APA/MLA/etc.)",
+      "Adequate number of sources",
+      "Sources support the arguments made"
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "checker",
+  "version": "1.0.0",
+  "description": "AI-powered student grading API using Ollama and Express.js",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "keywords": [
+    "grading",
+    "ollama",
+    "ai",
+    "education"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "mammoth": "^1.11.0",
+    "multer": "^2.0.2",
+    "ollama": "^0.6.3",
+    "pdf-parse": "^2.4.5",
+    "xlsx": "^0.18.5"
+  }
+}
