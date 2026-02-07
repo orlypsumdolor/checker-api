@@ -5,6 +5,7 @@ const fs = require("fs");
 
 const { parseFile, parseRubricFile, getSupportedExtensions } = require("../utils/fileParsers");
 const { gradeSubmission, generateSampleRubric, DEFAULT_MODEL } = require("../services/grader");
+const { saveResult, getResults, getResultById, deleteResult, isDbAvailable } = require("../db");
 
 const router = express.Router();
 
@@ -75,6 +76,7 @@ router.post(
     { name: "submission", maxCount: 1 },
     { name: "rubric", maxCount: 1 },
     { name: "instructions", maxCount: 1 },
+    { name: "noteFiles", maxCount: 10 },
   ]),
   async (req, res) => {
     try {
@@ -88,18 +90,15 @@ router.post(
         return res.status(400).json({ error: "Missing required field: submission (provide a file or text)" });
       }
 
-      // Resolve rubric: file first, then text field
-      let rubric;
+      // Resolve rubric: file first, then text field, or null (AI will grade based on instructions alone)
+      let rubric = null;
       if (req.files?.rubric?.[0]) {
         rubric = await parseRubricFile(req.files.rubric[0].path, req.files.rubric[0].originalname);
       } else if (req.body.rubric) {
-        // If text, try to parse as JSON object; otherwise keep as string
         rubric = req.body.rubric;
         if (typeof rubric === "string") {
           try { rubric = JSON.parse(rubric); } catch { /* keep as string */ }
         }
-      } else {
-        return res.status(400).json({ error: "Missing required field: rubric (provide a file or text)" });
       }
 
       // Resolve instructions: file first, then text field
@@ -112,8 +111,21 @@ router.post(
         return res.status(400).json({ error: "Missing required field: instructions (provide a file or text)" });
       }
 
+      // Resolve note: combine all note files + text (all optional, stacked together)
+      const noteParts = [];
+      if (req.files?.noteFiles) {
+        for (const nf of req.files.noteFiles) {
+          noteParts.push(await parseFile(nf.path, nf.originalname));
+        }
+      }
+      if (req.body.note) {
+        noteParts.push(req.body.note);
+      }
+      const note = noteParts.length > 0 ? noteParts.join("\n\n") : null;
+
       const maxScore = parseInt(req.body.maxScore) || 100;
       const studentName = req.body.studentName || "";
+      const leniency = req.body.leniency || "normal";
       const model = req.body.model || DEFAULT_MODEL;
 
       // Grade the submission
@@ -121,17 +133,29 @@ router.post(
         submission,
         rubric,
         instructions,
+        note,
         maxScore,
         studentName,
+        leniency,
         model,
       });
+
+      // Save to database (if available)
+      let dbId = null;
+      if (isDbAvailable()) {
+        try {
+          dbId = await saveResult(result);
+        } catch (dbErr) {
+          console.error("Failed to save result to database:", dbErr.message);
+        }
+      }
 
       // Clean up temp files
       cleanupFiles(req.files);
 
       res.json({
         success: true,
-        data: result,
+        data: { ...result, id: dbId },
       });
     } catch (err) {
       cleanupFiles(req.files);
@@ -164,6 +188,7 @@ router.post(
     { name: "submissions", maxCount: 50 },
     { name: "rubric", maxCount: 1 },
     { name: "instructions", maxCount: 1 },
+    { name: "noteFiles", maxCount: 10 },
   ]),
   async (req, res) => {
     try {
@@ -171,8 +196,8 @@ router.post(
         return res.status(400).json({ error: "Missing required files: submissions" });
       }
 
-      // Resolve rubric: file first, then text field
-      let rubric;
+      // Resolve rubric: file first, then text field, or null
+      let rubric = null;
       if (req.files?.rubric?.[0]) {
         rubric = await parseRubricFile(req.files.rubric[0].path, req.files.rubric[0].originalname);
       } else if (req.body.rubric) {
@@ -180,8 +205,6 @@ router.post(
         if (typeof rubric === "string") {
           try { rubric = JSON.parse(rubric); } catch { /* keep as string */ }
         }
-      } else {
-        return res.status(400).json({ error: "Missing required field: rubric (provide a file or text)" });
       }
 
       // Resolve instructions: file first, then text field
@@ -194,7 +217,20 @@ router.post(
         return res.status(400).json({ error: "Missing required field: instructions (provide a file or text)" });
       }
 
+      // Resolve note: combine all note files + text
+      const noteParts = [];
+      if (req.files?.noteFiles) {
+        for (const nf of req.files.noteFiles) {
+          noteParts.push(await parseFile(nf.path, nf.originalname));
+        }
+      }
+      if (req.body.note) {
+        noteParts.push(req.body.note);
+      }
+      const note = noteParts.length > 0 ? noteParts.join("\n\n") : null;
+
       const maxScore = parseInt(req.body.maxScore) || 100;
+      const leniency = req.body.leniency || "normal";
       const model = req.body.model || DEFAULT_MODEL;
 
       const results = [];
@@ -213,14 +249,27 @@ router.post(
             submission,
             rubric,
             instructions,
+            note,
             maxScore,
             studentName,
+            leniency,
             model,
           });
+
+          // Save to database (if available)
+          let dbId = null;
+          if (isDbAvailable()) {
+            try {
+              dbId = await saveResult(result);
+            } catch (dbErr) {
+              console.error("Failed to save batch result to database:", dbErr.message);
+            }
+          }
 
           results.push({
             studentName,
             filename: submissionFile.originalname,
+            id: dbId,
             ...result,
           });
         } catch (err) {
@@ -305,6 +354,65 @@ router.get("/health", async (_req, res) => {
         error: err.message,
       },
     });
+  }
+});
+
+/**
+ * GET /api/results
+ *
+ * Returns all grading results (newest first).
+ * Query params:
+ *   - limit (number, default 50)
+ *   - offset (number, default 0)
+ */
+router.get("/results", async (req, res) => {
+  if (!isDbAvailable()) {
+    return res.json({ success: true, data: [], total: 0, limit: 0, offset: 0, dbOffline: true });
+  }
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+    const offset = parseInt(req.query.offset) || 0;
+    const { rows, total } = await getResults({ limit, offset });
+    res.json({ success: true, data: rows, total, limit, offset });
+  } catch (err) {
+    console.error("Failed to fetch results:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/results/:id
+ *
+ * Returns a single grading result by ID (full data).
+ */
+router.get("/results/:id", async (req, res) => {
+  try {
+    const row = await getResultById(req.params.id);
+    if (!row) {
+      return res.status(404).json({ success: false, error: "Result not found" });
+    }
+    res.json({ success: true, data: row });
+  } catch (err) {
+    console.error("Failed to fetch result:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * DELETE /api/results/:id
+ *
+ * Deletes a grading result by ID.
+ */
+router.delete("/results/:id", async (req, res) => {
+  try {
+    const deleted = await deleteResult(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ success: false, error: "Result not found" });
+    }
+    res.json({ success: true, message: "Result deleted" });
+  } catch (err) {
+    console.error("Failed to delete result:", err);
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

@@ -1,8 +1,10 @@
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
 const gradingRoutes = require("./routes/grading");
+const { initDb } = require("./db");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -31,11 +33,14 @@ app.get("/api/info", (_req, res) => {
     version: "1.0.0",
     description: "AI-powered student grading API using Ollama",
     endpoints: {
-      "POST /api/grade": "Grade a single submission (files, text, or JSON body)",
-      "POST /api/grade/batch": "Grade multiple submissions (file upload)",
-      "GET  /api/rubric/sample": "Get a sample rubric template",
-      "GET  /api/supported-formats": "List supported file formats",
-      "GET  /api/health": "Health check (Ollama connection)",
+      "POST   /api/grade": "Grade a single submission (files, text, or JSON body)",
+      "POST   /api/grade/batch": "Grade multiple submissions (file upload)",
+      "GET    /api/results": "List grading history (?limit=&offset=)",
+      "GET    /api/results/:id": "Get a single grading result",
+      "DELETE /api/results/:id": "Delete a grading result",
+      "GET    /api/rubric/sample": "Get a sample rubric template",
+      "GET    /api/supported-formats": "List supported file formats",
+      "GET    /api/health": "Health check (Ollama connection)",
     },
     supportedFiles: [".txt", ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".ods", ".md", ".csv", ".json"],
   });
@@ -56,10 +61,25 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ success: false, error: "Internal server error" });
 });
 
-app.listen(PORT, () => {
-  console.log(`\n  Checker API is running at http://localhost:${PORT}`);
-  console.log(`  Web UI:              http://localhost:${PORT}`);
-  console.log(`  Health check:        http://localhost:${PORT}/api/health`);
-  console.log(`  Sample rubric:       http://localhost:${PORT}/api/rubric/sample`);
-  console.log(`  Supported formats:   http://localhost:${PORT}/api/supported-formats\n`);
-});
+// Initialize database, then start server
+initDb()
+  .then(() => {
+    startServer();
+  })
+  .catch((err) => {
+    console.warn(`\n  WARNING: MySQL not available — ${err.message}`);
+    console.warn("  Grading will work but results will NOT be saved.");
+    console.warn("  Set DB_PASSWORD in .env if your MySQL root user has a password.\n");
+    startServer();
+  });
+
+function startServer() {
+  app.listen(PORT, () => {
+    console.log(`\n  Checker API is running at http://localhost:${PORT}`);
+    console.log(`  Web UI:              http://localhost:${PORT}`);
+    console.log(`  Health check:        http://localhost:${PORT}/api/health`);
+    console.log(`  Grading history:     http://localhost:${PORT}/api/results`);
+    console.log(`  Sample rubric:       http://localhost:${PORT}/api/rubric/sample`);
+    console.log(`  Supported formats:   http://localhost:${PORT}/api/supported-formats\n`);
+  });
+}

@@ -416,6 +416,107 @@
 
     .error-box.visible { display: block; }
 
+    /* ── History table ── */
+    .history-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+
+    .history-table th {
+      text-align: left;
+      padding: 0.6rem 0.75rem;
+      color: var(--text-dim);
+      font-weight: 500;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .history-table td {
+      padding: 0.65rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .history-table tr:last-child td { border-bottom: none; }
+
+    .history-table tbody tr {
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .history-table tbody tr:hover { background: var(--surface-2); }
+
+    .history-score {
+      font-weight: 600;
+    }
+
+    .history-pct {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    .pct-high { background: rgba(0,184,148,0.15); color: var(--green); }
+    .pct-mid { background: rgba(253,203,110,0.15); color: var(--yellow); }
+    .pct-low { background: rgba(225,112,85,0.15); color: var(--red); }
+
+    .history-actions {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .btn-icon {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      width: 30px;
+      height: 30px;
+      border-radius: 6px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8rem;
+      transition: all 0.15s;
+    }
+
+    .btn-icon:hover { border-color: var(--accent); color: var(--accent); }
+    .btn-icon.danger:hover { border-color: var(--red); color: var(--red); }
+
+    .history-empty {
+      text-align: center;
+      padding: 2rem;
+      color: var(--text-dim);
+      font-size: 0.9rem;
+    }
+
+    .pagination {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 1rem;
+      font-size: 0.8rem;
+      color: var(--text-dim);
+    }
+
+    .pagination button {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 0.4rem 0.85rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.8rem;
+      font-family: inherit;
+    }
+
+    .pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .pagination button:hover:not(:disabled) { border-color: var(--accent); }
+
     /* ── Utilities ── */
     .mt-1 { margin-top: 1rem; }
     .text-center { text-align: center; }
@@ -458,7 +559,7 @@
 
     <!-- Rubric input -->
     <div class="form-group">
-      <label>Rubric</label>
+      <label>Rubric <span style="text-transform:none;font-weight:400;color:var(--text-dim)">(optional — AI will create criteria from instructions if omitted)</span></label>
       <div class="tabs" data-group="rubric">
         <button class="tab active" data-tab="rubric-file">Upload File</button>
         <button class="tab" data-tab="rubric-text">Paste Text</button>
@@ -492,8 +593,20 @@
       </div>
     </div>
 
+    <!-- Note input -->
+    <div class="form-group">
+      <label>Additional Note <span style="text-transform:none;font-weight:400;color:var(--text-dim)">(optional — extra instructions for the AI grader)</span></label>
+      <div style="display:flex;flex-direction:column;gap:0.65rem;">
+        <textarea id="noteText" placeholder="e.g. Be lenient on formatting. Focus on logic correctness. Student is ESL, do not penalize grammar heavily."></textarea>
+        <div>
+          <label style="font-size:0.75rem;margin-bottom:0.3rem;">Or attach file(s) with additional notes</label>
+          <input type="file" id="noteFiles" multiple accept=".txt,.md,.csv,.pdf,.docx,.doc,.xlsx,.xls,.ods,.json">
+        </div>
+      </div>
+    </div>
+
     <!-- Options row -->
-    <div class="row-3">
+    <div class="row" style="grid-template-columns:1fr 1fr 1fr 1fr;">
       <div class="form-group">
         <label>Student Name</label>
         <input type="text" id="studentName" placeholder="Optional">
@@ -501,6 +614,15 @@
       <div class="form-group">
         <label>Max Score</label>
         <input type="number" id="maxScore" value="100" min="1">
+      </div>
+      <div class="form-group">
+        <label>Grading Leniency</label>
+        <select id="leniency">
+          <option value="strict">Strict</option>
+          <option value="normal" selected>Normal</option>
+          <option value="lenient">Lenient</option>
+          <option value="very_lenient">Very Lenient</option>
+        </select>
       </div>
       <div class="form-group">
         <label>Model</label>
@@ -565,6 +687,19 @@
       <div class="tab-panel" id="res-json">
         <pre class="text-report" id="jsonReport"></pre>
       </div>
+    </div>
+  </div>
+
+  <!-- History -->
+  <div class="card" id="historyCard">
+    <div class="card-title">Grading History <span class="badge" id="historyCount">0</span></div>
+    <div id="historyContent">
+      <div class="history-empty">Loading...</div>
+    </div>
+    <div class="pagination" id="historyPagination" style="display:none;">
+      <button id="prevPage">Previous</button>
+      <span id="pageInfo"></span>
+      <button id="nextPage">Next</button>
     </div>
   </div>
 </div>
@@ -703,17 +838,26 @@
       if (text) { formData.append('instructions', text); hasInstructions = true; }
     }
 
-    // Validate
+    // Validate (rubric is optional — AI will derive criteria from instructions)
     if (!hasSubmission) { showError('Please provide a submission (upload a file or paste text).'); return; }
-    if (!hasRubric) { showError('Please provide a rubric (upload a file, paste text, or use the sample).'); return; }
     if (!hasInstructions) { showError('Please provide assignment instructions (upload a file or paste text).'); return; }
+
+    // Note (text + multiple files can all be added together)
+    const noteText = document.getElementById('noteText').value.trim();
+    const noteFilesEl = document.getElementById('noteFiles');
+    if (noteText) formData.append('note', noteText);
+    for (const f of noteFilesEl.files) {
+      formData.append('noteFiles', f);
+    }
 
     // Options
     const studentName = document.getElementById('studentName').value.trim();
     const maxScore = document.getElementById('maxScore').value;
+    const leniency = document.getElementById('leniency').value;
     const model = document.getElementById('modelSelect').value;
     if (studentName) formData.append('studentName', studentName);
     if (maxScore) formData.append('maxScore', maxScore);
+    if (leniency) formData.append('leniency', leniency);
     if (model) formData.append('model', model);
 
     // Send
@@ -732,6 +876,7 @@
       }
 
       renderResults(data.data);
+      loadHistory();
     } catch (err) {
       showError(`Request failed: ${err.message}`);
     } finally {
@@ -839,6 +984,113 @@
     d.textContent = str;
     return d.innerHTML;
   }
+
+  // ── History ──
+  let historyPage = 0;
+  const historyLimit = 10;
+
+  async function loadHistory() {
+    const offset = historyPage * historyLimit;
+    try {
+      const res = await fetch(`${API}/api/results?limit=${historyLimit}&offset=${offset}`);
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+
+      document.getElementById('historyCount').textContent = data.total;
+      const content = document.getElementById('historyContent');
+
+      if (data.data.length === 0) {
+        content.innerHTML = '<div class="history-empty">No grading results yet. Grade a submission to see history here.</div>';
+        document.getElementById('historyPagination').style.display = 'none';
+        return;
+      }
+
+      let html = `<table class="history-table">
+        <thead><tr>
+          <th>Student</th>
+          <th>Score</th>
+          <th>%</th>
+          <th>Model</th>
+          <th>Date</th>
+          <th></th>
+        </tr></thead><tbody>`;
+
+      for (const row of data.data) {
+        const pct = row.percentage ?? 0;
+        const pctClass = pct >= 80 ? 'pct-high' : pct >= 60 ? 'pct-mid' : 'pct-low';
+        const date = new Date(row.graded_at).toLocaleDateString();
+        html += `<tr data-id="${row.id}" onclick="viewResult(${row.id})">
+          <td>${esc(row.student_name || 'Anonymous')}</td>
+          <td class="history-score">${row.total_score ?? '—'}/${row.max_score ?? '—'}</td>
+          <td><span class="history-pct ${pctClass}">${pct}%</span></td>
+          <td>${esc(row.model || '')}</td>
+          <td>${date}</td>
+          <td class="history-actions">
+            <button class="btn-icon danger" title="Delete" onclick="event.stopPropagation(); deleteHistoryItem(${row.id})">&#x2715;</button>
+          </td>
+        </tr>`;
+      }
+
+      html += '</tbody></table>';
+      content.innerHTML = html;
+
+      // Pagination
+      const totalPages = Math.ceil(data.total / historyLimit);
+      const pag = document.getElementById('historyPagination');
+      if (totalPages > 1) {
+        pag.style.display = 'flex';
+        document.getElementById('pageInfo').textContent = `Page ${historyPage + 1} of ${totalPages}`;
+        document.getElementById('prevPage').disabled = historyPage === 0;
+        document.getElementById('nextPage').disabled = historyPage >= totalPages - 1;
+      } else {
+        pag.style.display = 'none';
+      }
+    } catch (err) {
+      document.getElementById('historyContent').innerHTML =
+        `<div class="history-empty" style="color:var(--red)">Failed to load history: ${esc(err.message)}</div>`;
+    }
+  }
+
+  document.getElementById('prevPage').addEventListener('click', () => { historyPage--; loadHistory(); });
+  document.getElementById('nextPage').addEventListener('click', () => { historyPage++; loadHistory(); });
+
+  async function viewResult(id) {
+    try {
+      const res = await fetch(`${API}/api/results/${id}`);
+      const data = await res.json();
+      if (!data.success) return;
+
+      const row = data.data;
+      // Reconstruct the same shape as the grading response
+      const gradingData = {
+        results: row.full_result || {
+          student_name: row.student_name,
+          total_score: row.total_score,
+          max_score: row.max_score,
+          percentage: row.percentage,
+          rubric_breakdown: row.rubric_breakdown,
+          strengths: row.strengths,
+          improvements: row.improvements,
+          overall_feedback: row.overall_feedback,
+        },
+        textReport: row.text_report,
+        model: row.model,
+        gradedAt: row.graded_at,
+      };
+      renderResults(gradingData);
+    } catch {}
+  }
+
+  async function deleteHistoryItem(id) {
+    if (!confirm('Delete this grading result?')) return;
+    try {
+      await fetch(`${API}/api/results/${id}`, { method: 'DELETE' });
+      loadHistory();
+    } catch {}
+  }
+
+  // Load history on page load
+  loadHistory();
 </script>
 </body>
 </html>

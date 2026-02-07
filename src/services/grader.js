@@ -22,36 +22,51 @@ function isStructuredRubric(rubric) {
  * Build the grading prompt from inputs.
  * Adapts automatically based on whether the rubric is structured JSON or freeform text.
  */
-function buildGradingPrompt({ submission, rubric, instructions, maxScore, studentName }) {
-  let rubricText;
+const LENIENCY_INSTRUCTIONS = {
+  strict: "Grade STRICTLY. Apply the rubric rigorously with no benefit of the doubt. Deduct points for any deviation, even minor ones. Expect near-perfect work for full marks.",
+  normal: "Grade FAIRLY and OBJECTIVELY. Apply the rubric as written. Give credit where due but deduct for clear shortcomings.",
+  lenient: "Grade LENIENTLY. Give the student the benefit of the doubt where reasonable. Focus more on what the student did well. Minor issues should result in only small deductions.",
+  very_lenient: "Grade VERY LENIENTLY. Be generous with scoring. Focus primarily on effort and understanding shown. Only deduct for major, fundamental issues. Minor errors and formatting issues should be overlooked.",
+};
+
+function buildGradingPrompt({ submission, rubric, instructions, note, maxScore, studentName, leniency = "normal" }) {
+  let rubricSection;
   let rubricResponseInstruction;
 
-  if (isStructuredRubric(rubric)) {
+  if (!rubric) {
+    // No rubric provided — AI creates its own criteria from the instructions
+    rubricSection = "";
+    rubricResponseInstruction = `
+No rubric was provided. Based on the assignment instructions above, create your own reasonable grading criteria (3-7 categories) with point values that add up to ${maxScore}. Evaluate the submission against those criteria.`;
+  } else if (isStructuredRubric(rubric)) {
     // Structured rubric with explicit criteria and point values
-    rubricText = JSON.stringify(rubric, null, 2);
+    rubricSection = `\nGRADING RUBRIC:\n${JSON.stringify(rubric, null, 2)}`;
     rubricResponseInstruction = `
 The rubric above has specific criteria with point values. For each criterion in the rubric, provide a score (out of its max_points) and feedback in the "rubric_breakdown" field.`;
   } else {
     // Freeform rubric — plain text, a description, a table, etc.
-    rubricText = typeof rubric === "object" ? JSON.stringify(rubric, null, 2) : String(rubric);
+    const rubricText = typeof rubric === "object" ? JSON.stringify(rubric, null, 2) : String(rubric);
+    rubricSection = `\nGRADING RUBRIC:\n${rubricText}`;
     rubricResponseInstruction = `
 The rubric above is in freeform/text format. Read it carefully, identify the grading criteria described, and create your own reasonable point breakdown that adds up to the maximum score of ${maxScore}. For each criterion you identify, provide a score and feedback in the "rubric_breakdown" field.`;
   }
 
+  const leniencyInstruction = LENIENCY_INSTRUCTIONS[leniency] || LENIENCY_INSTRUCTIONS.normal;
+
   return `You are an expert academic grader. Grade the following student submission carefully and objectively.
+
+GRADING LENIENCY: ${leniency.toUpperCase()}
+${leniencyInstruction}
 
 ASSIGNMENT INSTRUCTIONS:
 ${instructions}
-
-GRADING RUBRIC:
-${rubricText}
-
+${rubricSection}
 MAXIMUM SCORE: ${maxScore}
 ${studentName ? `STUDENT: ${studentName}` : ""}
 
 STUDENT SUBMISSION:
 ${submission}
-
+${note ? `\nADDITIONAL NOTES FROM GRADER:\n${note}` : ""}
 ---
 ${rubricResponseInstruction}
 
@@ -245,15 +260,19 @@ async function gradeSubmission({
   submission,
   rubric,
   instructions,
+  note = null,
   maxScore = 100,
   studentName = "",
+  leniency = "normal",
   model = DEFAULT_MODEL,
 }) {
   const prompt = buildGradingPrompt({
     submission,
     rubric,
     instructions,
+    note,
     maxScore,
+    leniency,
     studentName,
   });
 
