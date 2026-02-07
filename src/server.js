@@ -18,11 +18,14 @@ app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
+// Serve static frontend
+app.use(express.static(path.join(__dirname, "../public")));
+
 // Routes
 app.use("/api", gradingRoutes);
 
-// Root endpoint
-app.get("/", (_req, res) => {
+// API info endpoint
+app.get("/api/info", (_req, res) => {
   res.json({
     name: "Checker — AI Grading API",
     version: "1.0.0",
@@ -55,6 +58,7 @@ app.use((err, _req, res, _next) => {
 
 app.listen(PORT, () => {
   console.log(`\n  Checker API is running at http://localhost:${PORT}`);
+  console.log(`  Web UI:              http://localhost:${PORT}`);
   console.log(`  Health check:        http://localhost:${PORT}/api/health`);
   console.log(`  Sample rubric:       http://localhost:${PORT}/api/rubric/sample`);
   console.log(`  Supported formats:   http://localhost:${PORT}/api/supported-formats\n`);

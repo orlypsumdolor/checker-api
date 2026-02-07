@@ -55,7 +55,14 @@ ${submission}
 ---
 ${rubricResponseInstruction}
 
-Please grade this submission and respond with ONLY a valid JSON object (no markdown, no explanation outside the JSON) using this exact structure:
+IMPORTANT RULES:
+- The "rubric_breakdown" must have only 3-7 TOP-LEVEL criteria (e.g. "Functionality", "Code Quality"). Do NOT list every sub-item as its own key.
+- Each criterion MUST have "score" (number), "max_points" (number), and "feedback" (string).
+- The sum of all "score" values must equal "total_score".
+- The sum of all "max_points" values must equal ${maxScore}.
+- "percentage" must equal round(total_score / max_score * 100).
+
+Respond with ONLY a valid JSON object. No markdown fences, no explanation outside the JSON.
 
 {
   "student_name": "${studentName || "Anonymous"}",
@@ -63,18 +70,62 @@ Please grade this submission and respond with ONLY a valid JSON object (no markd
   "max_score": ${maxScore},
   "percentage": <number>,
   "rubric_breakdown": {
-    "<criterion_name>": {
+    "<CriterionName>": {
       "score": <number>,
       "max_points": <number>,
-      "feedback": "<specific feedback for this criterion>"
+      "feedback": "<specific feedback>"
     }
   },
   "strengths": ["<strength 1>", "<strength 2>"],
   "improvements": ["<improvement 1>", "<improvement 2>"],
   "overall_feedback": "<2-3 sentence summary>"
+}`;
 }
 
-Be fair, specific, and constructive in your feedback. Base scores strictly on the rubric criteria.`;
+/**
+ * Try to repair truncated JSON by closing open braces/brackets/strings
+ */
+function repairTruncatedJson(jsonStr) {
+  let str = jsonStr.trim();
+
+  // Remove trailing comma if present
+  str = str.replace(/,\s*$/, "");
+
+  // If we're inside an unclosed string, close it
+  // Count unescaped quotes
+  let inString = false;
+  for (let i = 0; i < str.length; i++) {
+    if (str[i] === '"' && (i === 0 || str[i - 1] !== '\\')) {
+      inString = !inString;
+    }
+  }
+  if (inString) {
+    str += '"';
+  }
+
+  // Count open braces and brackets, close them
+  let openBraces = 0;
+  let openBrackets = 0;
+  let inStr = false;
+  for (let i = 0; i < str.length; i++) {
+    if (str[i] === '"' && (i === 0 || str[i - 1] !== '\\')) {
+      inStr = !inStr;
+      continue;
+    }
+    if (inStr) continue;
+    if (str[i] === '{') openBraces++;
+    if (str[i] === '}') openBraces--;
+    if (str[i] === '[') openBrackets++;
+    if (str[i] === ']') openBrackets--;
+  }
+
+  // Remove trailing comma again (closing a string may have revealed one)
+  str = str.replace(/,\s*$/, "");
+
+  while (openBrackets > 0) { str += ']'; openBrackets--; }
+  while (openBraces > 0) { str += '}'; openBraces--; }
+
+  return str;
 }
 
 /**
@@ -90,21 +141,34 @@ function parseGradingResponse(responseText) {
     jsonStr = jsonMatch[1].trim();
   }
 
-  // Try to find JSON object boundaries
+  // Try to find JSON object start
   const startIdx = jsonStr.indexOf("{");
-  const endIdx = jsonStr.lastIndexOf("}");
-  if (startIdx !== -1 && endIdx !== -1) {
-    jsonStr = jsonStr.substring(startIdx, endIdx + 1);
+  if (startIdx !== -1) {
+    jsonStr = jsonStr.substring(startIdx);
   }
 
-  try {
-    return JSON.parse(jsonStr);
-  } catch {
-    return {
-      raw_response: responseText,
-      parse_error: "Could not parse model response as JSON. Raw response included.",
-    };
+  // Attempt 1: parse as-is (trim to last })
+  const endIdx = jsonStr.lastIndexOf("}");
+  if (endIdx !== -1) {
+    try {
+      return JSON.parse(jsonStr.substring(0, endIdx + 1));
+    } catch {
+      // fall through to repair
+    }
   }
+
+  // Attempt 2: repair truncated JSON (missing closing braces/brackets)
+  try {
+    const repaired = repairTruncatedJson(jsonStr);
+    return JSON.parse(repaired);
+  } catch {
+    // fall through
+  }
+
+  return {
+    raw_response: responseText,
+    parse_error: "Could not parse model response as JSON. Raw response included.",
+  };
 }
 
 /**
@@ -174,7 +238,8 @@ function formatTextReport(results) {
 }
 
 /**
- * Grade a submission using Ollama
+ * Grade a submission using Ollama.
+ * Retries once with a correction prompt if the first response can't be parsed.
  */
 async function gradeSubmission({
   submission,
@@ -192,17 +257,68 @@ async function gradeSubmission({
     studentName,
   });
 
+  const messages = [{ role: "user", content: prompt }];
+
+  // First attempt
   const response = await ollama.chat({
     model,
-    messages: [{ role: "user", content: prompt }],
+    messages,
     options: {
       temperature: 0.3,
-      num_predict: 2048,
+      num_predict: 4096,
     },
   });
 
   const responseText = response.message.content;
-  const results = parseGradingResponse(responseText);
+  let results = parseGradingResponse(responseText);
+
+  // If parsing failed, retry with a correction prompt
+  if (results.parse_error) {
+    console.log("First grading response was not valid JSON, retrying...");
+
+    messages.push({ role: "assistant", content: responseText });
+    messages.push({
+      role: "user",
+      content: `Your response was not valid JSON. Please respond with ONLY a valid JSON object, no other text. Use this exact structure:
+
+{
+  "student_name": "${studentName || "Anonymous"}",
+  "total_score": <number>,
+  "max_score": ${maxScore},
+  "percentage": <number>,
+  "rubric_breakdown": {
+    "<criterion_name>": {
+      "score": <number>,
+      "max_points": <number>,
+      "feedback": "<feedback string>"
+    }
+  },
+  "strengths": ["<strength>"],
+  "improvements": ["<improvement>"],
+  "overall_feedback": "<summary>"
+}`,
+    });
+
+    const retry = await ollama.chat({
+      model,
+      messages,
+      options: { temperature: 0.1, num_predict: 4096 },
+    });
+
+    const retryText = retry.message.content;
+    const retryResults = parseGradingResponse(retryText);
+
+    if (!retryResults.parse_error) {
+      results = retryResults;
+    } else {
+      // Both attempts failed — include raw text so the UI can show something
+      results = {
+        ...results,
+        raw_response: responseText,
+      };
+    }
+  }
+
   const textReport = results.parse_error ? responseText : formatTextReport(results);
 
   return {

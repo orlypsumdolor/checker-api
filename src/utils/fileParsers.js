@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const pdfParse = require("pdf-parse");
+const { PDFParse } = require("pdf-parse");
 const mammoth = require("mammoth");
 const XLSX = require("xlsx");
 
@@ -53,8 +53,10 @@ async function parseJsonFile(filePath) {
  */
 async function parsePdfFile(filePath) {
   const buffer = fs.readFileSync(filePath);
-  const data = await pdfParse(buffer);
-  return data.text;
+  const uint8 = new Uint8Array(buffer);
+  const pdf = new PDFParse(uint8);
+  await pdf.load();
+  return pdf.getText();
 }
 
 /**

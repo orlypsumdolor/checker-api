@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Checker — AI Grading</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface-2: #232734;
+      --border: #2e3344;
+      --text: #e4e6ef;
+      --text-dim: #8b8fa3;
+      --accent: #6c5ce7;
+      --accent-hover: #7c6ff7;
+      --green: #00b894;
+      --red: #e17055;
+      --yellow: #fdcb6e;
+      --radius: 10px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    /* ── Layout ── */
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 2.5rem;
+    }
+
+    header h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+
+    header h1 span { color: var(--accent); }
+
+    header p {
+      color: var(--text-dim);
+      margin-top: 0.35rem;
+      font-size: 0.95rem;
+    }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      margin-top: 0.75rem;
+      font-size: 0.8rem;
+      color: var(--text-dim);
+    }
+
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--text-dim);
+    }
+
+    .status-dot.ok { background: var(--green); }
+    .status-dot.err { background: var(--red); }
+
+    /* ── Card ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.75rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .card-title {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .card-title .badge {
+      font-size: 0.7rem;
+      background: var(--accent);
+      color: #fff;
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-weight: 500;
+    }
+
+    /* ── Tabs ── */
+    .tabs {
+      display: flex;
+      gap: 0;
+      margin-bottom: 1.25rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .tab {
+      padding: 0.6rem 1.25rem;
+      cursor: pointer;
+      font-size: 0.85rem;
+      color: var(--text-dim);
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+      background: none;
+      border-top: none;
+      border-left: none;
+      border-right: none;
+      font-family: inherit;
+    }
+
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ── Form ── */
+    .form-group {
+      margin-bottom: 1.15rem;
+    }
+
+    label {
+      display: block;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--text-dim);
+      margin-bottom: 0.4rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    input[type="text"],
+    input[type="number"],
+    select,
+    textarea {
+      width: 100%;
+      padding: 0.65rem 0.85rem;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 0.9rem;
+      font-family: inherit;
+      transition: border-color 0.2s;
+      outline: none;
+    }
+
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--accent);
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 100px;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 0.82rem;
+      line-height: 1.5;
+    }
+
+    textarea.tall { min-height: 180px; }
+
+    .file-input-wrap {
+      position: relative;
+    }
+
+    input[type="file"] {
+      width: 100%;
+      padding: 0.6rem 0.85rem;
+      background: var(--surface-2);
+      border: 1px solid dashed var(--border);
+      border-radius: 8px;
+      color: var(--text-dim);
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+
+    input[type="file"]::file-selector-button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 0.35rem 0.85rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.8rem;
+      margin-right: 0.75rem;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+
+    .row-3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 1rem;
+    }
+
+    @media (max-width: 640px) {
+      .row, .row-3 { grid-template-columns: 1fr; }
+    }
+
+    /* ── Button ── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.75rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: inherit;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      width: 100%;
+    }
+
+    .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+
+    .btn-primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-sm {
+      padding: 0.45rem 1rem;
+      font-size: 0.8rem;
+    }
+
+    .btn-outline {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+    }
+
+    .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ── Spinner ── */
+    .spinner {
+      width: 18px; height: 18px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Results ── */
+    .results-section { display: none; }
+    .results-section.visible { display: block; }
+
+    .score-hero {
+      text-align: center;
+      padding: 2rem 1rem;
+      border-radius: var(--radius);
+      background: var(--surface-2);
+      margin-bottom: 1.5rem;
+    }
+
+    .score-hero .score {
+      font-size: 3rem;
+      font-weight: 800;
+      letter-spacing: -1px;
+    }
+
+    .score-hero .score .dim { color: var(--text-dim); font-weight: 400; }
+    .score-hero .pct { font-size: 1.1rem; color: var(--text-dim); margin-top: 0.2rem; }
+    .score-hero .student { font-size: 0.9rem; color: var(--text-dim); margin-top: 0.5rem; }
+
+    .breakdown-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.85rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .breakdown-item:last-child { border-bottom: none; }
+
+    .breakdown-name { font-weight: 500; font-size: 0.9rem; }
+
+    .breakdown-score {
+      font-weight: 600;
+      font-size: 0.9rem;
+      white-space: nowrap;
+    }
+
+    .breakdown-bar {
+      flex: 1;
+      margin: 0 1rem;
+      height: 6px;
+      background: var(--surface);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .breakdown-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      background: var(--accent);
+      transition: width 0.5s ease;
+    }
+
+    .breakdown-feedback {
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      margin-top: 0.3rem;
+      padding-left: 0;
+    }
+
+    .feedback-section {
+      margin-top: 1.25rem;
+    }
+
+    .feedback-section h3 {
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 0.65rem;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .feedback-list {
+      list-style: none;
+      padding: 0;
+    }
+
+    .feedback-list li {
+      padding: 0.4rem 0 0.4rem 1.25rem;
+      position: relative;
+      font-size: 0.9rem;
+    }
+
+    .feedback-list li::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0.75rem;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+    }
+
+    .feedback-list.strengths li::before { background: var(--green); }
+    .feedback-list.improvements li::before { background: var(--yellow); }
+
+    .overall-feedback {
+      padding: 1rem 1.25rem;
+      background: var(--surface-2);
+      border-radius: 8px;
+      font-size: 0.9rem;
+      line-height: 1.65;
+      border-left: 3px solid var(--accent);
+    }
+
+    .text-report {
+      background: var(--surface-2);
+      border-radius: 8px;
+      padding: 1.25rem;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 0.78rem;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 500px;
+      overflow-y: auto;
+      color: var(--text-dim);
+    }
+
+    .meta {
+      display: flex;
+      gap: 1.5rem;
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      margin-top: 0.75rem;
+      justify-content: center;
+    }
+
+    /* ── Error ── */
+    .error-box {
+      display: none;
+      background: rgba(225, 112, 85, 0.1);
+      border: 1px solid var(--red);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 1rem;
+      font-size: 0.88rem;
+      color: var(--red);
+    }
+
+    .error-box.visible { display: block; }
+
+    /* ── Utilities ── */
+    .mt-1 { margin-top: 1rem; }
+    .text-center { text-align: center; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <h1><span>Checker</span> — AI Grading</h1>
+    <p>Grade student submissions with AI using Ollama</p>
+    <div class="status-bar">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">Checking Ollama...</span>
+    </div>
+  </header>
+
+  <!-- Error display -->
+  <div class="error-box" id="errorBox"></div>
+
+  <!-- Grading Form -->
+  <div class="card" id="formCard">
+    <div class="card-title">Submission <span class="badge">Single</span></div>
+
+    <!-- Submission input -->
+    <div class="form-group">
+      <label>Submission</label>
+      <div class="tabs" data-group="submission">
+        <button class="tab active" data-tab="submission-file">Upload File</button>
+        <button class="tab" data-tab="submission-text">Paste Text</button>
+      </div>
+      <div class="tab-panel active" id="submission-file">
+        <input type="file" id="submissionFile" accept=".txt,.md,.csv,.pdf,.docx,.doc,.xlsx,.xls,.ods,.json">
+      </div>
+      <div class="tab-panel" id="submission-text">
+        <textarea id="submissionText" class="tall" placeholder="Paste the student's work here..."></textarea>
+      </div>
+    </div>
+
+    <!-- Rubric input -->
+    <div class="form-group">
+      <label>Rubric</label>
+      <div class="tabs" data-group="rubric">
+        <button class="tab active" data-tab="rubric-file">Upload File</button>
+        <button class="tab" data-tab="rubric-text">Paste Text</button>
+        <button class="tab" data-tab="rubric-sample">Use Sample</button>
+      </div>
+      <div class="tab-panel active" id="rubric-file">
+        <input type="file" id="rubricFile" accept=".txt,.md,.csv,.pdf,.docx,.doc,.xlsx,.xls,.ods,.json">
+      </div>
+      <div class="tab-panel" id="rubric-text">
+        <textarea id="rubricText" placeholder="Describe your grading criteria or paste a JSON rubric..."></textarea>
+      </div>
+      <div class="tab-panel" id="rubric-sample">
+        <p style="font-size:0.85rem;color:var(--text-dim);margin-bottom:0.5rem;">The default sample rubric will be used (Content Quality, Organization, Writing Quality, Requirements, Sources).</p>
+        <button class="btn btn-sm btn-outline" id="previewSampleBtn">Preview Sample Rubric</button>
+        <pre class="text-report hidden mt-1" id="sampleRubricPreview"></pre>
+      </div>
+    </div>
+
+    <!-- Instructions input -->
+    <div class="form-group">
+      <label>Instructions</label>
+      <div class="tabs" data-group="instructions">
+        <button class="tab active" data-tab="instructions-file">Upload File</button>
+        <button class="tab" data-tab="instructions-text">Paste Text</button>
+      </div>
+      <div class="tab-panel active" id="instructions-file">
+        <input type="file" id="instructionsFile" accept=".txt,.md,.csv,.pdf,.docx,.doc,.xlsx,.xls,.ods,.json">
+      </div>
+      <div class="tab-panel" id="instructions-text">
+        <textarea id="instructionsText" placeholder="Describe the assignment requirements..."></textarea>
+      </div>
+    </div>
+
+    <!-- Options row -->
+    <div class="row-3">
+      <div class="form-group">
+        <label>Student Name</label>
+        <input type="text" id="studentName" placeholder="Optional">
+      </div>
+      <div class="form-group">
+        <label>Max Score</label>
+        <input type="number" id="maxScore" value="100" min="1">
+      </div>
+      <div class="form-group">
+        <label>Model</label>
+        <select id="modelSelect">
+          <option value="" selected>Default (llama3.2)</option>
+        </select>
+      </div>
+    </div>
+
+    <button class="btn btn-primary" id="gradeBtn">
+      <span id="gradeBtnText">Grade Submission</span>
+      <div class="spinner hidden" id="gradeBtnSpinner"></div>
+    </button>
+  </div>
+
+  <!-- Results -->
+  <div class="results-section" id="resultsSection">
+    <div class="card">
+      <div class="card-title">Results</div>
+
+      <div class="score-hero" id="scoreHero">
+        <div class="score"><span id="totalScore">0</span><span class="dim">/<span id="maxScoreDisplay">100</span></span></div>
+        <div class="pct" id="pctDisplay">0%</div>
+        <div class="student" id="studentDisplay"></div>
+        <div class="meta">
+          <span id="modelDisplay"></span>
+          <span id="timeDisplay"></span>
+        </div>
+      </div>
+
+      <!-- Result tabs -->
+      <div class="tabs" data-group="results">
+        <button class="tab active" data-tab="res-breakdown">Breakdown</button>
+        <button class="tab" data-tab="res-feedback">Feedback</button>
+        <button class="tab" data-tab="res-report">Text Report</button>
+        <button class="tab" data-tab="res-json">Raw JSON</button>
+      </div>
+
+      <div class="tab-panel active" id="res-breakdown">
+        <div id="breakdownList"></div>
+      </div>
+
+      <div class="tab-panel" id="res-feedback">
+        <div class="feedback-section">
+          <h3>Strengths</h3>
+          <ul class="feedback-list strengths" id="strengthsList"></ul>
+        </div>
+        <div class="feedback-section">
+          <h3>Areas for Improvement</h3>
+          <ul class="feedback-list improvements" id="improvementsList"></ul>
+        </div>
+        <div class="feedback-section">
+          <h3>Overall Feedback</h3>
+          <div class="overall-feedback" id="overallFeedback"></div>
+        </div>
+      </div>
+
+      <div class="tab-panel" id="res-report">
+        <pre class="text-report" id="textReport"></pre>
+      </div>
+
+      <div class="tab-panel" id="res-json">
+        <pre class="text-report" id="jsonReport"></pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const API = window.location.origin;
+
+  // ── Tab switching ──
+  document.querySelectorAll('.tabs').forEach(tabBar => {
+    tabBar.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        tabBar.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        const group = tabBar.dataset.group;
+        const target = tab.dataset.tab;
+        document.querySelectorAll(`.tab-panel`).forEach(p => {
+          if (p.id.startsWith(target.split('-')[0] === 'res' ? 'res-' : group === 'results' ? 'res-' : group)) {
+            // handled below
+          }
+        });
+        // Simple: hide siblings, show target
+        const parent = tabBar.parentElement;
+        parent.querySelectorAll(':scope > .tab-panel').forEach(p => p.classList.remove('active'));
+        const panel = document.getElementById(target);
+        if (panel) panel.classList.add('active');
+      });
+    });
+  });
+
+  // ── Health check ──
+  async function checkHealth() {
+    const dot = document.getElementById('statusDot');
+    const txt = document.getElementById('statusText');
+    try {
+      const res = await fetch(`${API}/api/health`);
+      const data = await res.json();
+      if (data.success) {
+        dot.className = 'status-dot ok';
+        txt.textContent = `Ollama connected — ${data.ollama.models.length} model(s)`;
+        // Populate model dropdown
+        const sel = document.getElementById('modelSelect');
+        data.ollama.models.forEach(m => {
+          const opt = document.createElement('option');
+          opt.value = m;
+          opt.textContent = m;
+          sel.appendChild(opt);
+        });
+      } else {
+        throw new Error();
+      }
+    } catch {
+      dot.className = 'status-dot err';
+      txt.textContent = 'Ollama not connected';
+    }
+  }
+  checkHealth();
+
+  // ── Sample rubric preview ──
+  document.getElementById('previewSampleBtn').addEventListener('click', async () => {
+    const pre = document.getElementById('sampleRubricPreview');
+    if (!pre.classList.contains('hidden')) {
+      pre.classList.add('hidden');
+      return;
+    }
+    const res = await fetch(`${API}/api/rubric/sample`);
+    const data = await res.json();
+    pre.textContent = JSON.stringify(data.data, null, 2);
+    pre.classList.remove('hidden');
+  });
+
+  // ── Show / hide errors ──
+  function showError(msg) {
+    const box = document.getElementById('errorBox');
+    box.textContent = msg;
+    box.classList.add('visible');
+  }
+  function hideError() {
+    document.getElementById('errorBox').classList.remove('visible');
+  }
+
+  // ── Get active tab for a group ──
+  function activeTab(group) {
+    const bar = document.querySelector(`.tabs[data-group="${group}"]`);
+    const active = bar.querySelector('.tab.active');
+    return active ? active.dataset.tab : null;
+  }
+
+  // ── Grade submission ──
+  document.getElementById('gradeBtn').addEventListener('click', async () => {
+    hideError();
+    const btn = document.getElementById('gradeBtn');
+    const btnText = document.getElementById('gradeBtnText');
+    const spinner = document.getElementById('gradeBtnSpinner');
+
+    // Build form data
+    const formData = new FormData();
+    let hasSubmission = false;
+    let hasRubric = false;
+    let hasInstructions = false;
+
+    // Submission
+    const subTab = activeTab('submission');
+    if (subTab === 'submission-file') {
+      const file = document.getElementById('submissionFile').files[0];
+      if (file) { formData.append('submission', file); hasSubmission = true; }
+    } else {
+      const text = document.getElementById('submissionText').value.trim();
+      if (text) { formData.append('submission', text); hasSubmission = true; }
+    }
+
+    // Rubric
+    const rubTab = activeTab('rubric');
+    if (rubTab === 'rubric-file') {
+      const file = document.getElementById('rubricFile').files[0];
+      if (file) { formData.append('rubric', file); hasRubric = true; }
+    } else if (rubTab === 'rubric-text') {
+      const text = document.getElementById('rubricText').value.trim();
+      if (text) { formData.append('rubric', text); hasRubric = true; }
+    } else if (rubTab === 'rubric-sample') {
+      // Fetch sample rubric and send as text
+      try {
+        const res = await fetch(`${API}/api/rubric/sample`);
+        const data = await res.json();
+        formData.append('rubric', JSON.stringify(data.data));
+        hasRubric = true;
+      } catch { showError('Could not load sample rubric.'); return; }
+    }
+
+    // Instructions
+    const insTab = activeTab('instructions');
+    if (insTab === 'instructions-file') {
+      const file = document.getElementById('instructionsFile').files[0];
+      if (file) { formData.append('instructions', file); hasInstructions = true; }
+    } else {
+      const text = document.getElementById('instructionsText').value.trim();
+      if (text) { formData.append('instructions', text); hasInstructions = true; }
+    }
+
+    // Validate
+    if (!hasSubmission) { showError('Please provide a submission (upload a file or paste text).'); return; }
+    if (!hasRubric) { showError('Please provide a rubric (upload a file, paste text, or use the sample).'); return; }
+    if (!hasInstructions) { showError('Please provide assignment instructions (upload a file or paste text).'); return; }
+
+    // Options
+    const studentName = document.getElementById('studentName').value.trim();
+    const maxScore = document.getElementById('maxScore').value;
+    const model = document.getElementById('modelSelect').value;
+    if (studentName) formData.append('studentName', studentName);
+    if (maxScore) formData.append('maxScore', maxScore);
+    if (model) formData.append('model', model);
+
+    // Send
+    btn.disabled = true;
+    btnText.textContent = 'Grading...';
+    spinner.classList.remove('hidden');
+    document.getElementById('resultsSection').classList.remove('visible');
+
+    try {
+      const res = await fetch(`${API}/api/grade`, { method: 'POST', body: formData });
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        showError(data.error || 'Grading failed. Check the server logs.');
+        return;
+      }
+
+      renderResults(data.data);
+    } catch (err) {
+      showError(`Request failed: ${err.message}`);
+    } finally {
+      btn.disabled = false;
+      btnText.textContent = 'Grade Submission';
+      spinner.classList.add('hidden');
+    }
+  });
+
+  // ── Render results ──
+  function renderResults(data) {
+    const r = data.results;
+    const section = document.getElementById('resultsSection');
+    section.classList.add('visible');
+    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    const hasParsed = !r.parse_error;
+
+    // Score hero
+    document.getElementById('totalScore').textContent = hasParsed ? (r.total_score ?? '—') : '—';
+    document.getElementById('maxScoreDisplay').textContent = r.max_score ?? 100;
+    document.getElementById('pctDisplay').textContent = hasParsed && r.percentage != null ? `${r.percentage}%` : (hasParsed ? '' : 'See report below');
+    document.getElementById('studentDisplay').textContent = r.student_name || '';
+    document.getElementById('modelDisplay').textContent = `Model: ${data.model}`;
+    document.getElementById('timeDisplay').textContent = `Graded: ${new Date(data.gradedAt).toLocaleString()}`;
+
+    // Color the score
+    const hero = document.getElementById('scoreHero');
+    if (hasParsed) {
+      const pct = r.percentage ?? 0;
+      hero.style.borderLeft = `4px solid ${pct >= 80 ? 'var(--green)' : pct >= 60 ? 'var(--yellow)' : 'var(--red)'}`;
+    } else {
+      hero.style.borderLeft = `4px solid var(--yellow)`;
+    }
+
+    // Breakdown
+    const list = document.getElementById('breakdownList');
+    list.innerHTML = '';
+    if (hasParsed && r.rubric_breakdown) {
+      for (const [name, detail] of Object.entries(r.rubric_breakdown)) {
+        // Handle various response shapes from the model
+        if (detail && typeof detail === 'object' && ('score' in detail || 'max_points' in detail)) {
+          const score = detail.score ?? detail.points ?? 0;
+          const maxPts = detail.max_points ?? detail.max ?? 0;
+          const pctFill = maxPts > 0 ? (score / maxPts * 100) : 0;
+          const fb = detail.feedback || detail.comment || detail.comments || '';
+          list.innerHTML += `
+            <div class="breakdown-item" style="flex-wrap:wrap;">
+              <span class="breakdown-name">${esc(name)}</span>
+              <div class="breakdown-bar"><div class="breakdown-bar-fill" style="width:${pctFill}%"></div></div>
+              <span class="breakdown-score">${score}/${maxPts}</span>
+              ${fb ? `<div class="breakdown-feedback" style="width:100%;margin-top:0.25rem;">${esc(fb)}</div>` : ''}
+            </div>`;
+        } else if (typeof detail === 'number') {
+          // Model returned { "criterion": score }
+          list.innerHTML += `
+            <div class="breakdown-item" style="flex-wrap:wrap;">
+              <span class="breakdown-name">${esc(name)}</span>
+              <div class="breakdown-bar"><div class="breakdown-bar-fill" style="width:0%"></div></div>
+              <span class="breakdown-score">${detail}</span>
+            </div>`;
+        } else if (typeof detail === 'string') {
+          // Model returned { "criterion": "feedback text" }
+          list.innerHTML += `
+            <div class="breakdown-item" style="flex-wrap:wrap;">
+              <span class="breakdown-name">${esc(name)}</span>
+              <div class="breakdown-feedback" style="width:100%;margin-top:0.25rem;">${esc(detail)}</div>
+            </div>`;
+        }
+      }
+    } else if (!hasParsed) {
+      list.innerHTML = `<p style="color:var(--yellow);font-size:0.88rem;">The AI response could not be parsed into a structured format. Check the <strong>Text Report</strong> or <strong>Raw JSON</strong> tab for the full response.</p>`;
+    }
+
+    // Strengths & improvements
+    const sl = document.getElementById('strengthsList');
+    sl.innerHTML = '';
+    if (hasParsed) {
+      (r.strengths || []).forEach(s => { sl.innerHTML += `<li>${esc(s)}</li>`; });
+    }
+
+    const il = document.getElementById('improvementsList');
+    il.innerHTML = '';
+    if (hasParsed) {
+      (r.improvements || []).forEach(i => { il.innerHTML += `<li>${esc(i)}</li>`; });
+    }
+
+    document.getElementById('overallFeedback').textContent = hasParsed ? (r.overall_feedback || '') : (data.textReport || r.raw_response || '');
+
+    // Text report
+    document.getElementById('textReport').textContent = data.textReport || '';
+
+    // JSON
+    document.getElementById('jsonReport').textContent = JSON.stringify(r, null, 2);
+
+    // If parsing failed, auto-switch to the Text Report tab
+    if (!hasParsed) {
+      const reportTab = document.querySelector('.tab[data-tab="res-report"]');
+      if (reportTab) reportTab.click();
+    }
+  }
+
+  function esc(str) {
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+  }
+</script>
+</body>
+</html>
