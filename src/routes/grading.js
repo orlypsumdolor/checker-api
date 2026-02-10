@@ -4,7 +4,7 @@ const path = require("path");
 const fs = require("fs");
 
 const { parseFile, parseRubricFile, getSupportedExtensions } = require("../utils/fileParsers");
-const { gradeSubmission, generateSampleRubric, DEFAULT_MODEL } = require("../services/grader");
+const { gradeSubmission, buildGradingPrompt, generateSampleRubric, DEFAULT_MODEL } = require("../services/grader");
 const { saveResult, getResults, getResultById, deleteResult, isDbAvailable } = require("../db");
 
 const router = express.Router();
@@ -58,11 +58,12 @@ function cleanupFiles(files) {
  * POST /api/grade
  *
  * Grade a single submission.
- * Each field accepts EITHER a file upload OR a text value — file takes priority.
+ * Each field accepts EITHER file upload(s) OR a text value — files take priority.
  *
  * Form fields (multipart/form-data):
- *   - submission (file OR text, required): Student's work
- *   - rubric (file OR text, required): Grading rubric (text can be JSON string or plain text)
+ *   - submission (one or more files OR text, required): Student's work.
+ *       Multiple files are parsed and concatenated with headers.
+ *   - rubric (file OR text, optional): Grading rubric (text can be JSON string or plain text)
  *   - instructions (file OR text, required): Assignment instructions
  *   - maxScore (text, optional): Maximum score (default 100)
  *   - studentName (text, optional): Student's name
@@ -73,21 +74,31 @@ function cleanupFiles(files) {
 router.post(
   "/grade",
   optionalUpload([
-    { name: "submission", maxCount: 1 },
+    { name: "submission", maxCount: 20 },
     { name: "rubric", maxCount: 1 },
     { name: "instructions", maxCount: 1 },
     { name: "noteFiles", maxCount: 10 },
   ]),
   async (req, res) => {
     try {
-      // Resolve submission: file first, then text field
+      // Resolve submission: files first (multiple supported), then text field
       let submission;
-      if (req.files?.submission?.[0]) {
-        submission = await parseFile(req.files.submission[0].path, req.files.submission[0].originalname);
+      if (req.files?.submission && req.files.submission.length > 0) {
+        const parts = [];
+        for (const sf of req.files.submission) {
+          const parsed = await parseFile(sf.path, sf.originalname);
+          const text = typeof parsed === "string" ? parsed : JSON.stringify(parsed, null, 2);
+          if (req.files.submission.length > 1) {
+            parts.push(`--- File: ${sf.originalname} ---\n${text}`);
+          } else {
+            parts.push(text);
+          }
+        }
+        submission = parts.join("\n\n");
       } else if (req.body.submission) {
         submission = req.body.submission;
       } else {
-        return res.status(400).json({ error: "Missing required field: submission (provide a file or text)" });
+        return res.status(400).json({ error: "Missing required field: submission (provide file(s) or text)" });
       }
 
       // Resolve rubric: file first, then text field, or null (AI will grade based on instructions alone)
@@ -115,7 +126,8 @@ router.post(
       const noteParts = [];
       if (req.files?.noteFiles) {
         for (const nf of req.files.noteFiles) {
-          noteParts.push(await parseFile(nf.path, nf.originalname));
+          const parsed = await parseFile(nf.path, nf.originalname);
+          noteParts.push(typeof parsed === "string" ? parsed : JSON.stringify(parsed, null, 2));
         }
       }
       if (req.body.note) {
@@ -128,7 +140,6 @@ router.post(
       const leniency = req.body.leniency || "normal";
       const model = req.body.model || DEFAULT_MODEL;
 
-      // Grade the submission
       const result = await gradeSubmission({
         submission,
         rubric,
@@ -163,6 +174,123 @@ router.post(
       res.status(500).json({
         success: false,
         error: err.message || "Internal server error during grading",
+      });
+    }
+  }
+);
+
+/**
+ * POST /api/prompt
+ *
+ * Generate the exact prompt that would be sent to the model, using the same
+ * inputs as /api/grade. Does NOT call Ollama.
+ */
+router.post(
+  "/prompt",
+  optionalUpload([
+    { name: "submission", maxCount: 20 },
+    { name: "rubric", maxCount: 1 },
+    { name: "instructions", maxCount: 1 },
+    { name: "noteFiles", maxCount: 10 },
+  ]),
+  async (req, res) => {
+    try {
+      // Resolve submission: files first (multiple supported), then text field
+      let submission;
+      if (req.files?.submission && req.files.submission.length > 0) {
+        const parts = [];
+        for (const sf of req.files.submission) {
+          const parsed = await parseFile(sf.path, sf.originalname);
+          const text = typeof parsed === "string" ? parsed : JSON.stringify(parsed, null, 2);
+          if (req.files.submission.length > 1) {
+            parts.push(`--- File: ${sf.originalname} ---\n${text}`);
+          } else {
+            parts.push(text);
+          }
+        }
+        submission = parts.join("\n\n");
+      } else if (req.body.submission) {
+        submission = req.body.submission;
+      } else {
+        return res.status(400).json({ error: "Missing required field: submission (provide file(s) or text)" });
+      }
+
+      // Resolve rubric: file first, then text field, or null
+      let rubric = null;
+      if (req.files?.rubric?.[0]) {
+        rubric = await parseRubricFile(req.files.rubric[0].path, req.files.rubric[0].originalname);
+      } else if (req.body.rubric) {
+        rubric = req.body.rubric;
+        if (typeof rubric === "string") {
+          try { rubric = JSON.parse(rubric); } catch { /* keep as string */ }
+        }
+      }
+
+      // Resolve instructions: file first, then text field
+      let instructions;
+      if (req.files?.instructions?.[0]) {
+        instructions = await parseFile(req.files.instructions[0].path, req.files.instructions[0].originalname);
+      } else if (req.body.instructions) {
+        instructions = req.body.instructions;
+      } else {
+        return res.status(400).json({ error: "Missing required field: instructions (provide a file or text)" });
+      }
+
+      // Resolve note: combine all note files + text (all optional, stacked together)
+      const noteParts = [];
+      if (req.files?.noteFiles) {
+        for (const nf of req.files.noteFiles) {
+          const parsed = await parseFile(nf.path, nf.originalname);
+          noteParts.push(typeof parsed === "string" ? parsed : JSON.stringify(parsed, null, 2));
+        }
+      }
+      if (req.body.note) {
+        noteParts.push(req.body.note);
+      }
+      const note = noteParts.length > 0 ? noteParts.join("\n\n") : null;
+
+      const maxScore = parseInt(req.body.maxScore) || 100;
+      const studentName = req.body.studentName || "";
+      const leniency = req.body.leniency || "normal";
+
+      const userPrompt = buildGradingPrompt({
+        submission,
+        rubric,
+        instructions,
+        note,
+        maxScore,
+        leniency,
+        studentName,
+      });
+
+      // Build the exact same payload sent to the model
+      const systemMessage = [
+        "You are a grading engine.",
+        "Follow instructions literally.",
+        "Output ONLY valid JSON.",
+        "Do NOT explain reasoning.",
+        "No markdown. No extra text.",
+      ].join("\n");
+
+      const fullPrompt = `[SYSTEM]\n${systemMessage}\n\n[USER]\n${userPrompt}`;
+
+      cleanupFiles(req.files);
+
+      res.json({
+        success: true,
+        data: {
+          prompt: fullPrompt,
+          maxScore,
+          studentName,
+          leniency,
+        },
+      });
+    } catch (err) {
+      cleanupFiles(req.files);
+      console.error("Prompt generation error:", err);
+      res.status(500).json({
+        success: false,
+        error: err.message || "Internal server error during prompt generation",
       });
     }
   }
@@ -221,7 +349,8 @@ router.post(
       const noteParts = [];
       if (req.files?.noteFiles) {
         for (const nf of req.files.noteFiles) {
-          noteParts.push(await parseFile(nf.path, nf.originalname));
+          const parsed = await parseFile(nf.path, nf.originalname);
+          noteParts.push(typeof parsed === "string" ? parsed : JSON.stringify(parsed, null, 2));
         }
       }
       if (req.body.note) {
@@ -243,7 +372,8 @@ router.post(
         );
 
         try {
-          const submission = await parseFile(submissionFile.path, submissionFile.originalname);
+          const parsed = await parseFile(submissionFile.path, submissionFile.originalname);
+          const submission = typeof parsed === "string" ? parsed : JSON.stringify(parsed, null, 2);
 
           const result = await gradeSubmission({
             submission,

@@ -34,6 +34,7 @@ app.get("/api/info", (_req, res) => {
     description: "AI-powered student grading API using Ollama",
     endpoints: {
       "POST   /api/grade": "Grade a single submission (files, text, or JSON body)",
+      "POST   /api/prompt": "Generate the grading prompt only (no Ollama call)",
       "POST   /api/grade/batch": "Grade multiple submissions (file upload)",
       "GET    /api/results": "List grading history (?limit=&offset=)",
       "GET    /api/results/:id": "Get a single grading result",

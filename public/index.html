@@ -550,7 +550,8 @@
         <button class="tab" data-tab="submission-text">Paste Text</button>
       </div>
       <div class="tab-panel active" id="submission-file">
-        <input type="file" id="submissionFile" accept=".txt,.md,.csv,.pdf,.docx,.doc,.xlsx,.xls,.ods,.json">
+        <input type="file" id="submissionFile" accept=".txt,.md,.csv,.pdf,.docx,.doc,.xlsx,.xls,.ods,.json" multiple>
+        <small style="color:var(--text-muted,#888);margin-top:4px;display:block;">You can select multiple files. They will be combined for grading.</small>
       </div>
       <div class="tab-panel" id="submission-text">
         <textarea id="submissionText" class="tall" placeholder="Paste the student's work here..."></textarea>
@@ -636,6 +637,28 @@
       <span id="gradeBtnText">Grade Submission</span>
       <div class="spinner hidden" id="gradeBtnSpinner"></div>
     </button>
+
+    <!-- Prompt generator -->
+    <div class="mt-1" style="border-top:1px solid var(--border); padding-top:1.25rem;">
+      <div class="card-title" style="margin-bottom:0.85rem;">Prompt Generator <span class="badge">Copy</span></div>
+      <p style="font-size:0.85rem;color:var(--text-dim);margin-bottom:0.85rem;">
+        Generate the exact prompt (no Ollama call) so you can copy/paste it anywhere.
+      </p>
+
+      <div class="row" style="grid-template-columns:1fr 1fr;">
+        <button class="btn btn-outline" id="promptBtn" style="width:100%;">Generate Prompt</button>
+        <button class="btn btn-outline" id="copyPromptBtn" style="width:100%;" disabled>Copy Prompt</button>
+      </div>
+
+      <div class="form-group mt-1">
+        <label>Generated Prompt</label>
+        <textarea id="promptOutput" class="tall" readonly placeholder="Click “Generate Prompt” to build the prompt..."></textarea>
+        <div style="display:flex;justify-content:space-between;gap:1rem;margin-top:0.4rem;font-size:0.78rem;color:var(--text-dim);">
+          <span id="promptMeta"></span>
+          <button class="btn btn-sm btn-outline" id="clearPromptBtn" type="button">Clear</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Results -->
@@ -787,45 +810,39 @@
     return active ? active.dataset.tab : null;
   }
 
-  // ── Grade submission ──
-  document.getElementById('gradeBtn').addEventListener('click', async () => {
-    hideError();
-    const btn = document.getElementById('gradeBtn');
-    const btnText = document.getElementById('gradeBtnText');
-    const spinner = document.getElementById('gradeBtnSpinner');
-
-    // Build form data
+  async function buildFormDataFromUI() {
+    // Build form data (same inputs used for /api/grade and /api/prompt)
     const formData = new FormData();
     let hasSubmission = false;
-    let hasRubric = false;
     let hasInstructions = false;
 
-    // Submission
+    // Submission (supports multiple files)
     const subTab = activeTab('submission');
     if (subTab === 'submission-file') {
-      const file = document.getElementById('submissionFile').files[0];
-      if (file) { formData.append('submission', file); hasSubmission = true; }
+      const files = document.getElementById('submissionFile').files;
+      for (const file of files) {
+        formData.append('submission', file);
+        hasSubmission = true;
+      }
     } else {
       const text = document.getElementById('submissionText').value.trim();
       if (text) { formData.append('submission', text); hasSubmission = true; }
     }
 
-    // Rubric
+    // Rubric (optional)
     const rubTab = activeTab('rubric');
     if (rubTab === 'rubric-file') {
       const file = document.getElementById('rubricFile').files[0];
-      if (file) { formData.append('rubric', file); hasRubric = true; }
+      if (file) formData.append('rubric', file);
     } else if (rubTab === 'rubric-text') {
       const text = document.getElementById('rubricText').value.trim();
-      if (text) { formData.append('rubric', text); hasRubric = true; }
+      if (text) formData.append('rubric', text);
     } else if (rubTab === 'rubric-sample') {
       // Fetch sample rubric and send as text
-      try {
-        const res = await fetch(`${API}/api/rubric/sample`);
-        const data = await res.json();
-        formData.append('rubric', JSON.stringify(data.data));
-        hasRubric = true;
-      } catch { showError('Could not load sample rubric.'); return; }
+      const res = await fetch(`${API}/api/rubric/sample`);
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error('Could not load sample rubric.');
+      formData.append('rubric', JSON.stringify(data.data));
     }
 
     // Instructions
@@ -839,8 +856,8 @@
     }
 
     // Validate (rubric is optional — AI will derive criteria from instructions)
-    if (!hasSubmission) { showError('Please provide a submission (upload a file or paste text).'); return; }
-    if (!hasInstructions) { showError('Please provide assignment instructions (upload a file or paste text).'); return; }
+    if (!hasSubmission) throw new Error('Please provide a submission (upload a file or paste text).');
+    if (!hasInstructions) throw new Error('Please provide assignment instructions (upload a file or paste text).');
 
     // Note (text + multiple files can all be added together)
     const noteText = document.getElementById('noteText').value.trim();
@@ -859,6 +876,53 @@
     if (maxScore) formData.append('maxScore', maxScore);
     if (leniency) formData.append('leniency', leniency);
     if (model) formData.append('model', model);
+
+    return formData;
+  }
+
+  function setPromptUI({ prompt, metaText }) {
+    const out = document.getElementById('promptOutput');
+    const copyBtn = document.getElementById('copyPromptBtn');
+    const meta = document.getElementById('promptMeta');
+    out.value = prompt || '';
+    out.scrollTop = 0;
+    copyBtn.disabled = !(prompt && prompt.trim().length > 0);
+    meta.textContent = metaText || '';
+  }
+
+  async function copyToClipboard(text) {
+    if (!text) return;
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    // Fallback for non-secure contexts / older browsers
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.top = '-1000px';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    if (!ok) throw new Error('Copy failed. Please copy manually.');
+  }
+
+  // ── Grade submission ──
+  document.getElementById('gradeBtn').addEventListener('click', async () => {
+    hideError();
+    const btn = document.getElementById('gradeBtn');
+    const btnText = document.getElementById('gradeBtnText');
+    const spinner = document.getElementById('gradeBtnSpinner');
+
+    let formData;
+    try {
+      formData = await buildFormDataFromUI();
+    } catch (err) {
+      showError(err.message);
+      return;
+    }
 
     // Send
     btn.disabled = true;
@@ -884,6 +948,74 @@
       btnText.textContent = 'Grade Submission';
       spinner.classList.add('hidden');
     }
+  });
+
+  // ── Generate prompt only ──
+  document.getElementById('promptBtn').addEventListener('click', async () => {
+    hideError();
+    const btn = document.getElementById('promptBtn');
+    const copyBtn = document.getElementById('copyPromptBtn');
+
+    let formData;
+    try {
+      formData = await buildFormDataFromUI();
+    } catch (err) {
+      showError(err.message);
+      return;
+    }
+
+    btn.disabled = true;
+    copyBtn.disabled = true;
+    const prevText = btn.textContent;
+    btn.textContent = 'Generating...';
+
+    try {
+      const res = await fetch(`${API}/api/prompt`, { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        showError(data.error || 'Prompt generation failed. Check the server logs.');
+        return;
+      }
+      const prompt = data.data?.prompt || '';
+      const ts = new Date().toLocaleString();
+      setPromptUI({
+        prompt,
+        metaText: `${prompt.length.toLocaleString()} chars • Generated ${ts}`,
+      });
+    } catch (err) {
+      showError(`Request failed: ${err.message}`);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = prevText;
+    }
+  });
+
+  // ── Copy prompt ──
+  document.getElementById('copyPromptBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('copyPromptBtn');
+    const out = document.getElementById('promptOutput');
+    const text = out.value || '';
+    if (!text.trim()) return;
+    const prev = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Copying...';
+    try {
+      await copyToClipboard(text);
+      btn.textContent = 'Copied';
+      setTimeout(() => {
+        btn.textContent = prev;
+        btn.disabled = false;
+      }, 900);
+    } catch (err) {
+      btn.textContent = prev;
+      btn.disabled = false;
+      showError(err.message);
+    }
+  });
+
+  // ── Clear prompt ──
+  document.getElementById('clearPromptBtn').addEventListener('click', () => {
+    setPromptUI({ prompt: '', metaText: '' });
   });
 
   // ── Render results ──
