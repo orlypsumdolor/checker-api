@@ -23,10 +23,29 @@ function isStructuredRubric(rubric) {
  * Adapts automatically based on whether the rubric is structured JSON or freeform text.
  */
 const LENIENCY_INSTRUCTIONS = {
-  strict: "Grade STRICTLY. Apply the rubric rigorously with no benefit of the doubt. Deduct points for any deviation, even minor ones. Expect near-perfect work for full marks.",
-  normal: "Grade FAIRLY and OBJECTIVELY. Apply the rubric as written. Give credit where due but deduct for clear shortcomings.",
-  lenient: "Grade LENIENTLY. Give the student the benefit of the doubt where reasonable. Focus more on what the student did well. Minor issues should result in only small deductions.",
-  very_lenient: "Grade VERY LENIENTLY. Be generous with scoring. Focus primarily on effort and understanding shown. Only deduct for major, fundamental issues. Minor errors and formatting issues should be overlooked.",
+  strict: `
+- Award full points ONLY if a criterion is fully met
+- Do NOT infer intent or missing details
+- Penalize inaccuracies, omissions, or unclear explanations
+- Partial correctness receives partial credit`,
+
+  normal: `
+- Apply the rubric/criteria as written
+- Allow reasonable interpretation when the submission is clearly correct
+- Penalize clear errors and missing required elements
+- Partial correctness receives proportional credit`,
+
+  lenient: `
+- Favor the student when intent is reasonably clear
+- Focus on major requirements and core concepts
+- Minor issues should cause small deductions only
+- Partial correctness receives generous partial credit`,
+
+  very_lenient: `
+- Reward effort and basic understanding
+- Deduct only for major conceptual misunderstandings
+- Ignore minor errors unless explicitly required
+- Give generous partial credit for relevant attempts`,
 };
 
 function buildGradingPrompt({ submission, rubric, instructions, note, maxScore, studentName, leniency = "normal" }) {
@@ -34,10 +53,37 @@ function buildGradingPrompt({ submission, rubric, instructions, note, maxScore, 
   let rubricResponseInstruction;
 
   if (!rubric) {
-    // No rubric provided — AI creates its own criteria from the instructions
+    // No rubric provided — derive criteria from the assignment instructions
     rubricSection = "";
     rubricResponseInstruction = `
-No rubric was provided. Based on the assignment instructions above, create your own reasonable grading criteria (3-7 categories) with point values that add up to ${maxScore}. Evaluate the submission against those criteria.`;
+No formal rubric was provided. Derive grading criteria from the assignment instructions.
+
+STEP 1 — EXTRACT CRITERIA:
+- Break instructions into explicit requirements (what students were told to do).
+- Identify implied expectations (what a competent response would include).
+- Turn each into a checkable criterion (3–7 total).
+
+STEP 2 — ASSIGN WEIGHTS (must sum to ${maxScore}):
+Use this default split, adjusting if the instructions emphasize certain areas:
+  Task Completion (followed instructions): ~40%
+  Accuracy / Correctness:                  ~30%
+  Clarity & Organization:                  ~20%
+  Effort / Completeness:                   ~10%
+You may merge or split categories to fit the assignment.
+
+STEP 3 — SCORE EACH CRITERION:
+For each criterion:
+  1. Binary check — Was the requirement met? (Yes / No)
+  2. Quality modifier — If met: Weak / Acceptable / Strong
+  3. Assign points:
+     Not met        → 0 or minimal
+     Met (Weak)     → 40–60% of max_points
+     Met (Acceptable) → 60–80% of max_points
+     Met (Strong)   → 80–100% of max_points
+
+STEP 4 — GRADE INTENT, NOT STYLE:
+- Penalize missing or incorrect content, not formatting (unless explicitly required).
+- If the student follows instructions and shows understanding, do not give a low grade for imperfect execution.`;
   } else if (isStructuredRubric(rubric)) {
     // Structured rubric with explicit criteria and point values
     rubricSection = `\nGRADING RUBRIC:\n${JSON.stringify(rubric, null, 2)}`;
@@ -54,9 +100,6 @@ The rubric above is in freeform/text format. Read it carefully, identify the gra
   const leniencyInstruction = LENIENCY_INSTRUCTIONS[leniency] || LENIENCY_INSTRUCTIONS.normal;
 
   return `You are an expert academic grader. Grade the following student submission carefully and objectively.
-
-GRADING LENIENCY: ${leniency.toUpperCase()}
-${leniencyInstruction}
 
 ASSIGNMENT INSTRUCTIONS:
 ${instructions}
@@ -77,6 +120,33 @@ IMPORTANT RULES:
 - The sum of all "max_points" values must equal ${maxScore}.
 - "percentage" must equal round(total_score / max_score * 100).
 
+FEEDBACK–SCORE ALIGNMENT (MANDATORY):
+Step 1: Write honest, detailed feedback FIRST — describe all strengths AND all problems you find.
+Step 2: Set the score to MATCH the feedback.
+
+- If feedback mentions ANY problem, gap, or missing item → score MUST be less than max_points.
+- If feedback is entirely positive with no issues → score MAY be full marks.
+- Partial marks feedback MUST state (1) what was done well AND (2) what caused the point loss.
+- Zero marks feedback MUST state what was expected and what was missing.
+
+FEEDBACK QUALITY RULES (MANDATORY — apply to ALL feedback, strengths, improvements, overall_feedback):
+
+Each criterion feedback MUST be a DETAILED paragraph (3–6 sentences) that does ALL of the following:
+1. LIST what the student addressed, citing specific sections, values, or content from the submission in parentheses.
+   Example: "The submission addresses all three requirements: (1) Performance Metrics examines latency (15-100ms), CPU (98%), and uptime (2%). (2) Capacity Limitations assesses scalability with thresholds (bandwidth at 75-85% of 100 Mbps). (3) Security Analysis reviews vulnerabilities (disabled encryption, inactive IDS)."
+2. INCLUDE actual data, numbers, or quotes from the submission to support your evaluation.
+   Example: "Performance metrics are realistic for legacy infrastructure (98% bandwidth utilization, 1.5% packet loss, 100ms jitter)."
+3. IDENTIFY specific errors, contradictions, or gaps.
+   Example: "However, the 2% uptime value contradicts all devices showing 'Active' status — this appears to be an error and should likely be 98% uptime."
+4. NOTE specific missing items, spelling errors, or incomplete entries.
+   Example: "Minor spelling errors present: 'Baisic' should be 'Basic', 'Infrastracture' should be 'Infrastructure'."
+
+strengths MUST be 3–4 items. Each item MUST be a detailed sentence citing specific content, values, or sections from the submission.
+improvements MUST be 3–4 items. Each item MUST name the exact section/field to fix and explain what to add or correct.
+overall_feedback MUST be 3–5 sentences summarizing what was done well, what is missing, and what to do next.
+
+Tone: Constructive and educational. Explain what is missing, not just that it is wrong. Be strict but fair.
+
 Respond with ONLY a valid JSON object. No markdown fences, no explanation outside the JSON.
 
 {
@@ -88,13 +158,18 @@ Respond with ONLY a valid JSON object. No markdown fences, no explanation outsid
     "<CriterionName>": {
       "score": <number>,
       "max_points": <number>,
-      "feedback": "<specific feedback>"
+      "feedback": "<3-6 sentence detailed paragraph: list what was addressed with specific values, identify errors/gaps, note missing items>"
     }
   },
-  "strengths": ["<strength 1>", "<strength 2>"],
-  "improvements": ["<improvement 1>", "<improvement 2>"],
-  "overall_feedback": "<2-3 sentence summary>"
-}`;
+  "strengths": ["<detailed strength citing specific content/values from submission>", "<another detailed strength>", "<another detailed strength>"],
+  "improvements": ["<name exact section/field to fix and explain what to add or correct>", "<another specific improvement>", "<another specific improvement>"],
+  "overall_feedback": "<3-5 sentence summary: what was done well, what is missing, what to do next>"
+}
+
+FINAL STEP — APPLY LENIENCY (adjust scores AFTER grading):
+LENIENCY MODE: ${leniency.toUpperCase()}
+${leniencyInstruction}
+Review your scores above and adjust them according to this leniency mode before outputting the final JSON.`;
 }
 
 /**
@@ -187,6 +262,100 @@ function parseGradingResponse(responseText) {
 }
 
 /**
+ * Validate and clamp grading results so no score exceeds its max_points,
+ * totals are consistent, and required fields are always present.
+ */
+function validateAndClampResults(results, maxScore, studentName) {
+  if (!results || results.parse_error) return results;
+
+  // --- Ensure required top-level fields ---
+  if (!results.student_name || results.student_name === "Anonymous") {
+    results.student_name = studentName || "Anonymous";
+  }
+
+  if (!results.rubric_breakdown) return results;
+
+  // --- Rescale max_points if they don't add up to maxScore ---
+  const entries = Object.entries(results.rubric_breakdown);
+  let rawMaxSum = 0;
+  for (const [, details] of entries) {
+    if (typeof details.max_points === "number") {
+      rawMaxSum += details.max_points;
+    }
+  }
+
+  if (rawMaxSum !== maxScore && rawMaxSum > 0) {
+    for (const [, details] of entries) {
+      if (typeof details.score === "number" && typeof details.max_points === "number") {
+        const ratio = details.max_points / rawMaxSum;
+        const newMax = Math.round(ratio * maxScore);
+        const newScore = Math.round((details.score / details.max_points) * newMax);
+        details.max_points = newMax;
+        details.score = newScore;
+      }
+    }
+
+    // Fix rounding: adjust the largest criterion so max_points sum exactly to maxScore
+    let rescaledMaxSum = 0;
+    let largestCriterion = null;
+    let largestMax = 0;
+    for (const [criterion, details] of entries) {
+      rescaledMaxSum += details.max_points;
+      if (details.max_points >= largestMax) {
+        largestMax = details.max_points;
+        largestCriterion = criterion;
+      }
+    }
+    if (rescaledMaxSum !== maxScore && largestCriterion) {
+      results.rubric_breakdown[largestCriterion].max_points += maxScore - rescaledMaxSum;
+    }
+  }
+
+  // --- Detect feedback–score contradictions and fix them ---
+  const DEFICIT_PATTERNS = /\b(but|however|missing|incomplete|lacking|incorrect|inaccuracies|inaccuracy|not fully|not adequately|did not|doesn't provide|does not provide|wasn't|weren't|failed to|fell short|weak|poorly|insufficient|absent|needs further|needs more|needs improvement|remains largely|lack of)\b/i;
+
+  for (const [criterion, details] of Object.entries(results.rubric_breakdown)) {
+    if (typeof details.score !== "number" || typeof details.max_points !== "number") continue;
+    if (typeof details.feedback !== "string") continue;
+
+    // Only check full-score criteria for contradictions
+    if (details.score === details.max_points) {
+      if (DEFICIT_PATTERNS.test(details.feedback)) {
+        // Feedback describes real issues — always adjust the score down, not the feedback
+        details.score = Math.max(0, details.score - 1);
+      }
+    }
+  }
+
+  // --- Clamp each score to [0, max_points] ---
+  let totalClamped = 0;
+  for (const [, details] of Object.entries(results.rubric_breakdown)) {
+    if (typeof details.score === "number" && typeof details.max_points === "number") {
+      if (details.score > details.max_points) {
+        details.score = details.max_points;
+      }
+      if (details.score < 0) {
+        details.score = 0;
+      }
+      totalClamped += details.score;
+    }
+  }
+
+  // --- Recalculate totals ---
+  results.total_score = totalClamped;
+  results.max_score = maxScore;
+
+  if (results.total_score > results.max_score) {
+    results.total_score = results.max_score;
+  }
+
+  results.percentage = Math.round((results.total_score / results.max_score) * 100);
+  if (results.percentage > 100) results.percentage = 100;
+
+  return results;
+}
+
+/**
  * Format grading results into a human-readable text report
  */
 function formatTextReport(results) {
@@ -276,6 +445,10 @@ async function gradeSubmission({
     studentName,
   });
 
+  console.log("\n📝 [Grader] Prompt sent to model:\n");
+  console.log(prompt);
+  console.log("\n" + "─".repeat(60) + "\n");
+
   const messages = [{ role: "user", content: prompt }];
 
   // First attempt
@@ -290,6 +463,7 @@ async function gradeSubmission({
 
   const responseText = response.message.content;
   let results = parseGradingResponse(responseText);
+  results = validateAndClampResults(results, maxScore, studentName);
 
   // If parsing failed, retry with a correction prompt
   if (results.parse_error) {
@@ -325,7 +499,8 @@ async function gradeSubmission({
     });
 
     const retryText = retry.message.content;
-    const retryResults = parseGradingResponse(retryText);
+    let retryResults = parseGradingResponse(retryText);
+    retryResults = validateAndClampResults(retryResults, maxScore, studentName);
 
     if (!retryResults.parse_error) {
       results = retryResults;
@@ -408,6 +583,7 @@ function generateSampleRubric() {
 
 module.exports = {
   gradeSubmission,
+  buildGradingPrompt,
   generateSampleRubric,
   formatTextReport,
   DEFAULT_MODEL,
