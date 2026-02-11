@@ -1,6 +1,14 @@
 const { Ollama } = require("ollama");
+const { execSync } = require("child_process");
+const path = require("path");
+const fs = require("fs");
+const os = require("os");
 
 const ollama = new Ollama();
+
+/** Backend: "ollama" (default) or "cursor" (Cursor CLI) */
+const DEFAULT_BACKEND = "ollama";
+
 
 /**
  * Default model to use
@@ -82,7 +90,6 @@ For each criterion:
      Met (Strong)   → 80–100% of max_points
 
 STEP 4 — GRADE INTENT, NOT STYLE:
-- Penalize missing or incorrect content, not formatting (unless explicitly required).
 - If the student follows instructions and shows understanding, do not give a low grade for imperfect execution.`;
   } else if (isStructuredRubric(rubric)) {
     // Structured rubric with explicit criteria and point values
@@ -113,6 +120,25 @@ ${note ? `\nADDITIONAL NOTES FROM GRADER:\n${note}` : ""}
 ---
 ${rubricResponseInstruction}
 
+Respond with ONLY a valid JSON object. No markdown fences, no explanation outside the JSON.
+
+{
+  "student_name": "${studentName || "Anonymous"}",
+  "total_score": <number>,
+  "max_score": ${maxScore},
+  "percentage": <number>,
+  "rubric_breakdown": {
+    "<CriterionName>": {
+      "score": <number>,
+      "max_points": <number>,
+      "feedback": "<3-6 sentence detailed paragraph: list what was addressed with specific values, identify errors/gaps, note missing items>"
+    }
+  },
+  "strengths": ["<detailed strength citing specific content/values from submission>", "<another detailed strength>", "<another detailed strength>"],
+  "improvements": ["<name exact section/field to fix and explain what to add or correct>", "<another specific improvement>", "<another specific improvement>"],
+  "overall_feedback": "<3-5 sentence summary: what was done well, what is missing, what to do next>"
+}
+
 IMPORTANT RULES:
 - The "rubric_breakdown" must have only 3-7 TOP-LEVEL criteria (e.g. "Functionality", "Code Quality"). Do NOT list every sub-item as its own key.
 - Each criterion MUST have "score" (number), "max_points" (number), and "feedback" (string).
@@ -129,6 +155,12 @@ Step 2: Set the score to MATCH the feedback.
 - Partial marks feedback MUST state (1) what was done well AND (2) what caused the point loss.
 - Zero marks feedback MUST state what was expected and what was missing.
 
+CONTENT OVER FORMATTING (MANDATORY):
+- Grade based on the CONTENT and SUBSTANCE of the submission as described in the assignment instructions.
+- Do NOT penalize for formatting, layout, styling, or presentation issues (e.g. missing headers, inconsistent bullet styles, font choices, spacing, capitalization style).
+- What matters is whether the student addressed the required topics, provided correct and complete information, and met the learning objectives outlined in the instructions.
+- If the content is accurate and complete but poorly formatted, it should still receive full or near-full marks.
+
 FEEDBACK QUALITY RULES (MANDATORY — apply to ALL feedback, strengths, improvements, overall_feedback):
 
 Each criterion feedback MUST be a DETAILED paragraph (3–6 sentences) that does ALL of the following:
@@ -138,8 +170,8 @@ Each criterion feedback MUST be a DETAILED paragraph (3–6 sentences) that does
    Example: "Performance metrics are realistic for legacy infrastructure (98% bandwidth utilization, 1.5% packet loss, 100ms jitter)."
 3. IDENTIFY specific errors, contradictions, or gaps.
    Example: "However, the 2% uptime value contradicts all devices showing 'Active' status — this appears to be an error and should likely be 98% uptime."
-4. NOTE specific missing items, spelling errors, or incomplete entries.
-   Example: "Minor spelling errors present: 'Baisic' should be 'Basic', 'Infrastracture' should be 'Infrastructure'."
+4. NOTE specific missing items or incomplete entries.
+   Example: "The Capacity Limitations section omits the recommended monitoring interval; Security Analysis does not list mitigation steps for the identified vulnerabilities."
 
 strengths MUST be 3–4 items. Each item MUST be a detailed sentence citing specific content, values, or sections from the submission.
 improvements MUST be 3–4 items. Each item MUST name the exact section/field to fix and explain what to add or correct.
@@ -422,7 +454,56 @@ function formatTextReport(results) {
 }
 
 /**
- * Grade a submission using Ollama.
+ * Run Cursor CLI agent with a prompt via execSync (shell).
+ * Command: cursor agent -p "<COMMAND/PROMPT>" --output-format text
+ * Prompt is passed via a temp file so the shell sees the user's PATH and no escaping is needed.
+ */
+function getCompletionFromCursor(prompt) {
+  const tempPath = path.join(os.tmpdir(), `cursor-prompt-${Date.now()}-${process.pid}.txt`);
+  fs.writeFileSync(tempPath, prompt, "utf-8");
+
+  const cmd = `agent -p "$(cat "$CURSOR_PROMPT_FILE")" --output-format text`;
+  console.log("[Cursor CLI] agent -p " + JSON.stringify(prompt) + " --output-format text");
+
+  const env = { ...process.env, CURSOR_PROMPT_FILE: tempPath };
+
+  try {
+    const stdout = execSync(cmd, {
+      encoding: "utf-8",
+      env,
+      cwd: process.cwd(),
+      maxBuffer: 10 * 1024 * 1024, // 10 MB
+      timeout: 300000, // 5 minutes
+    });
+    const response = (stdout || "").trim();
+    console.log("[Cursor CLI] response:", response);
+    return response;
+  } catch (err) {
+    const stderr = err.stderr != null ? String(err.stderr).trim() : "";
+    const stdout = err.stdout != null ? String(err.stdout).trim() : "";
+    const status = err.status ?? err.code ?? "";
+    const parts = [
+      status ? `exit ${status}` : null,
+      stderr || null,
+      stdout || null,
+      err.message,
+    ].filter(Boolean);
+    const msg = parts.length ? parts.join(" — ") : String(err);
+    console.error("[Cursor CLI] failed:", msg);
+    if (stderr) console.error("[Cursor CLI] stderr:", stderr);
+    if (stdout) console.error("[Cursor CLI] stdout:", stdout);
+    throw new Error(`Cursor CLI error: ${msg}`);
+  } finally {
+    try {
+      fs.unlinkSync(tempPath);
+    } catch {
+      // ignore cleanup errors
+    }
+  }
+}
+
+/**
+ * Grade a submission using Ollama or Cursor CLI.
  * Retries once with a correction prompt if the first response can't be parsed.
  */
 async function gradeSubmission({
@@ -434,6 +515,7 @@ async function gradeSubmission({
   studentName = "",
   leniency = "normal",
   model = DEFAULT_MODEL,
+  backend = DEFAULT_BACKEND,
 }) {
   const prompt = buildGradingPrompt({
     submission,
@@ -449,63 +531,56 @@ async function gradeSubmission({
   console.log(prompt);
   console.log("\n" + "─".repeat(60) + "\n");
 
-  const messages = [{ role: "user", content: prompt }];
+  let responseText;
 
-  // First attempt
-  const response = await ollama.chat({
-    model,
-    messages,
-    options: {
-      temperature: 0.3,
-      num_predict: 4096,
-    },
-  });
+  if (backend === "cursor") {
+    responseText = getCompletionFromCursor(prompt);
+  } else {
+    const messages = [{ role: "user", content: prompt }];
+    const response = await ollama.chat({
+      model,
+      messages,
+      options: {
+        temperature: 0.3,
+        num_predict: 4096,
+      },
+    });
+    responseText = response.message.content;
+  }
 
-  const responseText = response.message.content;
   let results = parseGradingResponse(responseText);
   results = validateAndClampResults(results, maxScore, studentName);
 
-  // If parsing failed, retry with a correction prompt
+  // If parsing failed, retry with a minimal correction prompt (avoids model echoing long instructions)
   if (results.parse_error) {
     console.log("First grading response was not valid JSON, retrying...");
 
-    messages.push({ role: "assistant", content: responseText });
-    messages.push({
-      role: "user",
-      content: `Your response was not valid JSON. Please respond with ONLY a valid JSON object, no other text. Use this exact structure:
+    const correctionPrompt = `Reply with ONLY one valid JSON object (no other text). Use this shape—fill in real scores and feedback from the submission you already graded:
+{"student_name":"${(studentName || "Anonymous").replace(/"/g, '\\"')}","total_score":0,"max_score":${maxScore},"percentage":0,"rubric_breakdown":{"Criterion 1":{"score":0,"max_points":${maxScore},"feedback":""}},"strengths":[],"improvements":[],"overall_feedback":""}`;
 
-{
-  "student_name": "${studentName || "Anonymous"}",
-  "total_score": <number>,
-  "max_score": ${maxScore},
-  "percentage": <number>,
-  "rubric_breakdown": {
-    "<criterion_name>": {
-      "score": <number>,
-      "max_points": <number>,
-      "feedback": "<feedback string>"
+    let retryText;
+    if (backend === "cursor") {
+      retryText = getCompletionFromCursor(correctionPrompt);
+    } else {
+      const messages = [
+        { role: "user", content: prompt },
+        { role: "assistant", content: responseText },
+        { role: "user", content: correctionPrompt },
+      ];
+      const retry = await ollama.chat({
+        model,
+        messages,
+        options: { temperature: 0.1, num_predict: 4096 },
+      });
+      retryText = retry.message.content;
     }
-  },
-  "strengths": ["<strength>"],
-  "improvements": ["<improvement>"],
-  "overall_feedback": "<summary>"
-}`,
-    });
 
-    const retry = await ollama.chat({
-      model,
-      messages,
-      options: { temperature: 0.1, num_predict: 4096 },
-    });
-
-    const retryText = retry.message.content;
     let retryResults = parseGradingResponse(retryText);
     retryResults = validateAndClampResults(retryResults, maxScore, studentName);
 
     if (!retryResults.parse_error) {
       results = retryResults;
     } else {
-      // Both attempts failed — include raw text so the UI can show something
       results = {
         ...results,
         raw_response: responseText,
@@ -518,7 +593,7 @@ async function gradeSubmission({
   return {
     results,
     textReport,
-    model,
+    model: backend === "cursor" ? "cursor" : model,
     gradedAt: new Date().toISOString(),
   };
 }
@@ -587,4 +662,5 @@ module.exports = {
   generateSampleRubric,
   formatTextReport,
   DEFAULT_MODEL,
+  DEFAULT_BACKEND,
 };

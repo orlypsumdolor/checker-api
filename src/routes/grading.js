@@ -4,7 +4,7 @@ const path = require("path");
 const fs = require("fs");
 
 const { parseFile, parseRubricFile, getSupportedExtensions } = require("../utils/fileParsers");
-const { gradeSubmission, buildGradingPrompt, generateSampleRubric, DEFAULT_MODEL } = require("../services/grader");
+const { gradeSubmission, buildGradingPrompt, generateSampleRubric, DEFAULT_MODEL, DEFAULT_BACKEND } = require("../services/grader");
 const { saveResult, getResults, getResultById, deleteResult, isDbAvailable } = require("../db");
 
 const router = express.Router();
@@ -68,6 +68,7 @@ function cleanupFiles(files) {
  *   - maxScore (text, optional): Maximum score (default 100)
  *   - studentName (text, optional): Student's name
  *   - model (text, optional): Ollama model name (default llama3.2)
+ *   - backend (text, optional): "ollama" or "cursor" — use Cursor CLI instead of Ollama (default ollama)
  *
  * Also accepts JSON body (Content-Type: application/json) with the same field names.
  */
@@ -139,6 +140,7 @@ router.post(
       const studentName = req.body.studentName || "";
       const leniency = req.body.leniency || "normal";
       const model = req.body.model || DEFAULT_MODEL;
+      const backend = req.body.backend || DEFAULT_BACKEND;
 
       const result = await gradeSubmission({
         submission,
@@ -149,6 +151,7 @@ router.post(
         studentName,
         leniency,
         model,
+        backend,
       });
 
       // Save to database (if available)
@@ -307,6 +310,7 @@ router.post(
  *   - instructions (file OR text, required): Assignment instructions
  *   - maxScore (text, optional)
  *   - model (text, optional)
+ *   - backend (text, optional): "ollama" or "cursor"
  *
  * Student names are inferred from filenames (without extension).
  */
@@ -361,6 +365,7 @@ router.post(
       const maxScore = parseInt(req.body.maxScore) || 100;
       const leniency = req.body.leniency || "normal";
       const model = req.body.model || DEFAULT_MODEL;
+      const backend = req.body.backend || DEFAULT_BACKEND;
 
       const results = [];
 
@@ -384,6 +389,7 @@ router.post(
             studentName,
             leniency,
             model,
+            backend,
           });
 
           // Save to database (if available)

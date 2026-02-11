@@ -1,0 +1,46 @@
+{
+  "student_name": "Resurreccion, A., Magtiza, SJ., Nacpil, AJ., Mansueto III, JA., Togno, BJ.",
+  "total_score": 26,
+  "max_score": 30,
+  "percentage": 87,
+  "rubric_breakdown": {
+    "Problem/Need Identification": {
+      "score": 7.5,
+      "max_points": 7.5,
+      "feedback": "The submission effectively defines the scope of the target problem and identifies user needs. Section 1.1 (System Overview) describes FIMS as a centralized platform for financial analysis, client data, and reporting, and names intended users (Admins, Analysts, Viewers, SME business owners) with their primary needs (stable data management, accurate fiscal reporting, regulatory adherence). Section 1.3 (Scope of the Report) clearly states included components (SQL Server 2008, Windows Server 2008 R2, local network, core financial modules), exclusions (third-party software, client hardware beyond minimum), and assumptions (2014 hardware baseline). Section 2.1 quantifies the gap between current capabilities and requirements (50 vs 200 users, 10MB vs 100MB file size). Key requirements and constraints are determined. No significant gaps; the scope is complete and concise."
+    },
+    "Root cause/need analysis": {
+      "score": 7.5,
+      "max_points": 7.5,
+      "feedback": "The submission identifies root causes and traces causality with justification. Performance degradation is linked to aging hardware (Core 2 Duo, 4GB RAM), outdated software (SQL Server 2008, Windows Server 2008 R2), and the database connection pool as the primary bottleneck (query hanging at 48 simultaneous connections, system break at 51 concurrent users). Security issues are traced to MD5 hashing, lack of SSL/TLS, single network segment with no DMZ/IDS/MFA, and limited RBAC. Fault tolerance problems are attributed to no redundancy (Legacy Router and Primary Switch as single points of failure), manual weekly tape backup (75% success rate), and no automated failover. Interoperability barriers are explained by closed architecture, monolithic design, and fixed data standards (Excel 2010). The relationship of events is mapped and findings are justified (e.g., 24-hour full restore and business halt in 2024)."
+    },
+    "Risk Identification": {
+      "score": 6,
+      "max_points": 7.5,
+      "feedback": "The submission thoroughly identifies major and minor risks that are relevant and well-documented. Performance risks include system crashes at 51 concurrent users, connection timeouts, 750% increase in query time (2.0s to 15.0s), and 75% decline in report generation (120 to 30 reports per day). Security risks are clearly stated: MD5 hashing, unencrypted traffic and email, no DMZ/IDS/MFA, and a 'Compromised' posture. Data and operational risks include backup success at 75%, recovery tests rated 'Critical,' data corruption, single points of failure, and a 24-hour full restore with business halt. Impacts are described (e.g., data import errors rising from 2.0% to 15.0%). The point deduction is for not explicitly categorizing or documenting emerging risks (e.g., increasing failure rate over time) and external factors (e.g., regulatory, vendor support) that the Advanced level requires for full marks."
+    },
+    "Relevance (to task/purpose)": {
+      "score": 3.6,
+      "max_points": 4.5,
+      "feedback": "The deliverable is highly relevant to the task of a system architecture evaluation and presents important aspects in a structured way. The report documents design choices (monolithic vs microservices, closed architecture, no cloud support), implementation and technology details (SQL Server 2008, Windows Server 2008 R2, 100Mbps network), processes (backup, recovery, load/stress testing), and test outcomes (48-connection bottleneck, 51-user breaking point). Sections 1–4 follow the template and integrate findings from performance, security, and fault-tolerance evaluations. The rubric’s 'Relevance' criterion refers to system documentation and user manual quality; for Milestone 1 the required output is the evaluation itself, not a user manual. The evaluation clearly presents design and implementation aspects and supports future work (e.g., Recommendations and Conclusions). It does not include test scripts or code-level details, which are not expected for this milestone, hence Intermediate rather than Advanced."
+    },
+    "Completeness": {
+      "score": 1.8,
+      "max_points": 3,
+      "feedback": "The submission implies data, operations, and management requirements through analysis and recommendations but does not produce them as explicit, complete lists. Data-related needs appear in context (e.g., 200 users, 100MB file size, data retention and backup recoverability) but are not stated as a formal 'Data Requirements' section. Operations requirements are discussed (automated backup replacing manual tape, high availability for router/switch, recovery procedures) yet not enumerated as 'Operations Requirements.' Management requirements are suggested in the strategic recommendations (stabilize hardware, fix backup process, transition to modern system) but not spelled out as 'Management Requirements.' The Developing level fits: most of the data, operations, and management requirements are present in substance, and adding explicit requirement sections would resolve the gap."
+    }
+  },
+  "strengths": [
+    "The introduction clearly defines evaluation objectives (system performance, security integrity, scalability and integration) and scope, including specific components (SQL Server 2008, Windows Server 2008 R2), exclusions, and the 2014 hardware baseline assumption, which anchors the analysis.",
+    "Performance and security evaluation is grounded in concrete metrics: database query time increase from 2.0s to 15.0s (750%), report generation up to 15 minutes (exceeding 5-minute design limit), transaction throughput drop from 450 to 120 per hour, connection pool bottleneck at 48 connections, and breaking point at 51 concurrent users; security is explicitly classified as 'Compromised' with specific vulnerabilities (MD5, no SSL/TLS, no DMZ/IDS/MFA).",
+    "Root cause analysis traces causality from technical choices to outcomes (e.g., CPU at 98% vs 80% limit and disk at 498GB/500GB leading to data corruption and outages; single router/switch and 75% backup success rate leading to 'Critical' recovery tests and 24-hour business halt), with clear justification.",
+    "Recommendations are actionable and aligned with findings: 'Fix the Foundation' (replace storage/processors, high availability for router/switch), 'Lock Down Security' (modern encryption, MFA, DMZ), and 'Plan for Growth' (automated backup, cloud-hybrid for 200 users and large files), and the conclusion prioritizes stabilizing hardware and backup before full modernization."
+  ],
+  "improvements": [
+    "Completeness: Add explicit sections for 'Data Requirements,' 'Operations Requirements,' and 'Management Requirements' (or a single requirements subsection) that list derived requirements in full—e.g., data: support 200 concurrent users, 100MB file size, defined retention and backup/recovery targets; operations: automated backup, HA for network devices, defined RTO/RPO; management: approval and governance for modernization, change management.",
+    "Risk Identification: Explicitly document emerging risks (e.g., worsening backup success rate, increasing failure frequency) and external factors (regulatory changes, end-of-life for SQL Server 2008/Windows 2008 R2, vendor support) so that risk identification meets the Advanced criterion of 'major, minor, emerging risks, and external factors.'",
+    "Relevance: To approach Advanced, consider briefly noting how this evaluation document will support future designers (e.g., which sections feed into Milestone 2 or terminal assessment) and, if applicable, reference or attach key evidence (e.g., one-page summary of load/stress test methodology or results) so documentation is clearly 'complete' for system evolution.",
+    "Section 1.1 states FIMS is 'designed to provide a cloud-based suite of tools' while later sections describe an on-premises, closed, non-cloud system; add one clarifying sentence that the business vision is cloud-based but the current evaluated system is legacy on-premises to avoid any reader confusion."
+  ],
+  "overall_feedback": "The team produced a strong system architecture evaluation that clearly defines the problem scope, traces root causes with evidence, and documents major performance, security, and resilience risks using specific metrics and findings from the FinMark scenario. The report is well-structured, follows the template, and ends with actionable recommendations and a clear conclusion. To improve the grade, add explicit data, operations, and management requirements sections, explicitly address emerging and external risks, and resolve the minor inconsistency between the 'cloud-based' description in the overview and the on-premises legacy system described elsewhere. This draft is a solid foundation for Milestone 2 and the terminal assessment."
+}

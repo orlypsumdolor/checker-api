@@ -607,7 +607,14 @@
     </div>
 
     <!-- Options row -->
-    <div class="row" style="grid-template-columns:1fr 1fr 1fr 1fr;">
+    <div class="row" style="grid-template-columns:1fr 1fr 1fr 1fr 1fr;">
+      <div class="form-group">
+        <label>Backend</label>
+        <select id="backendSelect">
+          <option value="ollama" selected>Ollama</option>
+          <option value="cursor">Cursor CLI</option>
+        </select>
+      </div>
       <div class="form-group">
         <label>Student Name</label>
         <input type="text" id="studentName" placeholder="Optional">
@@ -625,8 +632,8 @@
           <option value="very_lenient">Very Lenient</option>
         </select>
       </div>
-      <div class="form-group">
-        <label>Model</label>
+      <div class="form-group" id="modelFormGroup">
+        <label>Model <span id="modelLabelHint" style="font-weight:400;color:var(--text-dim);font-size:0.75rem;"></span></label>
         <select id="modelSelect">
           <option value="" selected>Default (llama3.2)</option>
         </select>
@@ -780,6 +787,20 @@
   }
   checkHealth();
 
+  // ── Backend change: enable/disable model select ──
+  document.getElementById('backendSelect').addEventListener('change', () => {
+    const backend = document.getElementById('backendSelect').value;
+    const modelSelect = document.getElementById('modelSelect');
+    const hint = document.getElementById('modelLabelHint');
+    if (backend === 'cursor') {
+      modelSelect.disabled = true;
+      hint.textContent = '(Ollama only)';
+    } else {
+      modelSelect.disabled = false;
+      hint.textContent = '';
+    }
+  });
+
   // ── Sample rubric preview ──
   document.getElementById('previewSampleBtn').addEventListener('click', async () => {
     const pre = document.getElementById('sampleRubricPreview');
@@ -868,14 +889,16 @@
     }
 
     // Options
+    const backend = document.getElementById('backendSelect').value;
     const studentName = document.getElementById('studentName').value.trim();
     const maxScore = document.getElementById('maxScore').value;
     const leniency = document.getElementById('leniency').value;
     const model = document.getElementById('modelSelect').value;
+    formData.append('backend', backend);
     if (studentName) formData.append('studentName', studentName);
     if (maxScore) formData.append('maxScore', maxScore);
     if (leniency) formData.append('leniency', leniency);
-    if (model) formData.append('model', model);
+    if (model && backend === 'ollama') formData.append('model', model);
 
     return formData;
   }

@@ -230,7 +230,8 @@ Grade a single student submission. This is the main endpoint and is very flexibl
 | `instructions` | file **or** text | **Yes** | The assignment instructions / prompt. Any supported file type or a plain text string. |
 | `studentName` | text | No | Student's name. Appears in the report. Defaults to `"Anonymous"`. |
 | `maxScore` | text (number) | No | Maximum possible score. Defaults to `100`. |
-| `model` | text | No | Ollama model to use. Defaults to `llama3.2`. |
+| `model` | text | No | Ollama model to use. Defaults to `llama3.2`. Ignored when `backend=cursor`. |
+| `backend` | text | No | `ollama` (default) or `cursor`. Use `cursor` to run grading via **Cursor CLI** (`cursor agent -p "..." --output-format text`) instead of Ollama. |
 
 > **Priority:** If the same field is provided as both a file and a text value, the **file takes priority**.
 
@@ -548,6 +549,38 @@ curl -X POST http://localhost:3000/api/grade \
 ```
 
 Make sure the model is pulled in Ollama first: `ollama pull <model-name>`
+
+---
+
+## Using Cursor CLI instead of Ollama
+
+You can run grading through the **Cursor CLI** instead of Ollama by passing `backend=cursor`. The API will run:
+
+```bash
+cursor agent -p "<grading prompt>" --output-format text
+```
+
+and use the command output as the model response. No Ollama (or model) is required when using this backend.
+
+**Requirements:** [Cursor](https://cursor.com) with the `cursor` CLI available in your `PATH`. Optionally set `CURSOR_CLI_PATH` in `.env` if the binary is elsewhere.
+
+**Example:**
+
+```bash
+curl -X POST http://localhost:3000/api/grade \
+  -F "submission=@essay.txt" \
+  -F "rubric=@rubric.json" \
+  -F "instructions=@instructions.txt" \
+  -F "backend=cursor"
+```
+
+With JSON body:
+
+```bash
+curl -X POST http://localhost:3000/api/grade \
+  -H "Content-Type: application/json" \
+  -d '{"submission":"...", "rubric":"...", "instructions":"...", "backend": "cursor"}'
+```
 
 ---
 
